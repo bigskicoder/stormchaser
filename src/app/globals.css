@@ -29,14 +29,22 @@
   --danger: #f87171;
   --danger-wash: rgba(248, 113, 113, 0.14);
 
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 9px;
+  --radius-lg: 14px;
+  --radius-md: 10px;
+  --radius-sm: 7px;
 
-  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 10px 30px -12px rgba(0, 0, 0, 0.6);
-  --shadow-card-hover: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 16px 40px -14px rgba(0, 0, 0, 0.7);
+  /* Flatter than a typical "floating card" shadow on purpose — just enough
+     to separate a panel from the page, no soft blurred glow at rest. A
+     little lift appears only on hover, where it actually signals
+     something (interactivity), not as ambient decoration everywhere. */
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  --shadow-card-hover: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 4px 14px -9px rgba(0, 0, 0, 0.55);
 
-  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Body text rides the OS's own UI font — no webfont import for it at
+     all. Headings and numeric readouts get their own deliberate faces
+     (set directly on h1-h3 and the .font-mono utility below) rather than
+     a single do-everything sans across the whole page. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
 }
 
 * {
@@ -50,7 +58,12 @@ html {
 body {
   margin: 0;
   background: var(--bg);
-  background-image: radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(95, 176, 255, 0.08), transparent 60%);
+  /* A faint topographic contour-line texture rather than a center-glow
+     gradient — ties to the mountain/terrain subject instead of reading as
+     generic product-launch-page chrome. Tiles seamlessly; kept at ~5%
+     opacity so it's felt more than seen. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cg fill='none' stroke='%235fb0ff' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M0,30 C60,18 60,18 120,30 C180,42 180,42 240,30'/%3E%3Cpath d='M0,90 C60,102 60,102 120,90 C180,78 180,78 240,90'/%3E%3Cpath d='M0,150 C60,138 60,138 120,150 C180,162 180,162 240,150'/%3E%3Cpath d='M0,210 C60,222 60,222 120,210 C180,198 180,198 240,210'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: repeat;
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-sans);
@@ -67,9 +80,23 @@ a:hover {
 }
 
 h1, h2, h3 {
+  font-family: var(--font-heading), var(--font-sans);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   margin: 0;
+}
+
+/* Numeric readouts (scores, snowfall, wind, temps) — a monospace so
+   figures line up and read like an instrument panel, not just styled
+   body text. Apply to the specific number elements, not broadly. */
+.font-mono,
+.header-stat .num,
+.admin-stat-card .num,
+.score-row .score,
+.conditions-temp,
+.snowfall-chart-value {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-feature-settings: "tnum";
 }
 
 /* ---------------------------------------------------------------------
@@ -99,15 +126,8 @@ h1, h2, h3 {
 }
 
 .brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: var(--accent-wash);
+  flex-shrink: 0;
   color: var(--accent-strong);
-  font-size: 18px;
 }
 
 .brand-name {
@@ -288,26 +308,21 @@ h1, h2, h3 {
 }
 
 /* ---------------------------------------------------------------------
-   Confidence badge
+   Confidence / status tag
+   A left-accent tag rather than a filled rounded pill with a bullet dot —
+   that specific combination (full-pill radius + colored dot + uppercase
+   tracked-out text) is close to a universal template-dashboard signature.
+   Still color-coded and scannable, just reads as a label, not a chip.
 --------------------------------------------------------------------- */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px 4px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.badge::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
+  padding: 2px 9px;
+  border-radius: var(--radius-sm);
+  border-left: 2px solid currentColor;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .badge.high {

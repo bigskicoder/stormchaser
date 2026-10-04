@@ -397,8 +397,81 @@ surfaced from reading the component source alone.
 **Still open**: the product name itself (BUILD_PRIMER section 0,
 "rename TBD") — the current design uses "powder-alert" as a working
 brand, which is low-cost to swap for a real name/logo later since
-nothing about the visual system depends on this specific name. That's
-now the only open item in Phase D.
+nothing about the visual system depends on this specific name.
+
+- **"Less AI-generated" pass**, requested directly — the operator's own
+  words: the first-pass design was functional and consistent, but had
+  accumulated several tells that read as generic AI-SaaS-template rather
+  than a considered product, mostly from leaning on the single most
+  common default choice at each decision point rather than one actually
+  suited to this subject. Fixed, each with a specific reason tied to
+  what this product is:
+  - **Inter for everything** (headings, body, numbers alike) — probably
+    the single most recognizable "AI-generated site" font signal at this
+    point, since it's the path-of-least-resistance default. Replaced
+    with a 3-tier system instead of one do-everything font: body text
+    now rides the OS's own UI font (`-apple-system`/`Segoe UI`/etc, see
+    `--font-sans` in `globals.css`) rather than importing a webfont for
+    it at all; headings get Space Grotesk, a distinct display face
+    (`src/app/layout.tsx`); numeric readouts — scores, snowfall, wind,
+    temps — get JetBrains Mono (the `.font-mono` utility and a handful
+    of specific selectors in `globals.css`), a deliberate choice, not a
+    decorative one: this is a forecast-data product, so figures reading
+    like instrument-panel numerals (fixed-width, tabular) fits the
+    subject rather than just being styled body text.
+  - **The radial-glow-from-top-center hero background** — close to a
+    template signature of its own at this point (nearly every
+    AI-generated SaaS landing page has one). Replaced with a faint
+    topographic contour-line texture tiled across the whole page
+    (`body`'s `background-image` in `globals.css`, a hand-built seamless
+    SVG tile, no new asset file) — ties to the actual subject (terrain,
+    mountains) instead of being generic "product launch page" chrome.
+  - **An emoji-in-a-rounded-square brand mark** (❄ on a tinted
+    background) — a recognizable "placeholder logo" pattern. Replaced
+    with a small drawn geometric mark (`src/components/brand-row.tsx`,
+    six lines of inline SVG: an angular peak with a storm-line through
+    it) — simple enough to have taken two minutes, but it's a considered
+    shape instead of a stock emoji in a box.
+  - **Badges as filled pill chips with a bullet dot and uppercase
+    tracked-out text** — confidence/status/wind-hold labels all used
+    this exact combination, which reads as a template dashboard
+    component because it is one, nearly verbatim, on most generated
+    dashboards. Restyled as a left-accent-bordered tag instead (`.badge`
+    in `globals.css`): still color-coded and scannable (the actual
+    functional point of a badge), just no longer the specific chip
+    shape that signals "here is a UI library's default Badge
+    component."
+  - **Soft blurred "floating card" shadows at rest on every panel** —
+    restyled `--shadow-card` to a near-flat 1px inset highlight, with
+    the soft blurred lift (`--shadow-card-hover`) now appearing only on
+    hover, where it actually communicates something (interactivity)
+    rather than existing as ambient decoration on every card whether or
+    not it does anything.
+  - Also tightened `--radius-lg/md/sm` down a few px across the board —
+    a smaller, less exaggerated rounding scale reads as more considered
+    than the larger, very-rounded-everywhere scale common to AI-
+    generated component libraries.
+
+  Deliberately **not** touched in this pass: page structure/layout
+  (hero → content → table), the color palette itself (the "alpine
+  night" navy/ice-blue/confidence-color system), and copy — those
+  weren't flagged as the problem, and changing them too would make it
+  harder to isolate which change actually helped if something needs
+  reverting. The operator said UI refinement is ongoing ("we will need
+  to refine ui later on") — this is a first pass at the most
+  recognizable tells, not a claim that every generic-feeling surface is
+  now fixed.
+
+  Verified via a temporary `/design-check` fixture route (combining the
+  homepage hero, badge tiers, the resort map, the snowfall chart,
+  conditions strip, and the forecast table in one page — since there's
+  still no live Supabase/Clerk to check the real routes against) and
+  `playwright-core` screenshots at desktop and mobile widths, plus a
+  direct `getComputedStyle` check confirming Space Grotesk and
+  JetBrains Mono actually loaded and applied (not silently falling back
+  to the system stack) rather than trusting the CSS looked right.
+  Removed before commit. No regressions found — 118 tests still pass,
+  clean build.
 
 ---
 
@@ -627,6 +700,35 @@ to re-read the original primer to know what's accounted for.
   a temporary `/resort-preview` fixture route (since removed) and
   `playwright-core` screenshots. 36 new tests (118 total), clean
   typecheck, clean build.
+- **2026-10-04** — Finished Phase D with a full admin panel visual pass
+  (nav across the three admin sections, dashboard stat row, a reusable
+  `StatusBadge`, a "beating NWS / even / behind" comparison badge on the
+  backtest table) — the one remaining codeable, non-opt-in item left on
+  the whole roadmap once the public site and resort detail pages were
+  done, picked up autonomously per the standing "keep working toward
+  roadmap completion" instruction. Verified via a temporary
+  `/admin-preview` fixture route (bypassing the Clerk gate with fixture
+  data) and `playwright-core` screenshots — no new bugs found. 118 tests
+  unchanged, clean build.
+- **2026-10-04** — "Make it look less AI-generated" pass, the operator's
+  own direct request. Identified and fixed five specific template tells
+  rather than a vague aesthetic pass: the single do-everything Inter
+  font (split into a 3-tier system — OS system font for body, Space
+  Grotesk for headings, JetBrains Mono for numeric readouts), the
+  radial-glow hero background (replaced with a hand-built topographic
+  contour-line texture tied to the actual subject), the emoji-in-a-box
+  brand mark (replaced with a drawn geometric peak mark), filled pill
+  badges with a bullet dot and uppercase tracked-out text (restyled as
+  left-accent-bordered tags), and soft blurred shadows at rest on every
+  card (flattened to near-zero, with a lift only on hover where it
+  signals something). Deliberately left the layout, color palette, and
+  copy untouched — this pass targeted specific recognizable tells, not
+  everything that could conceivably change, and the operator flagged
+  this as ongoing work ("refine later on"), not a one-shot fix. Verified
+  via a temporary `/design-check` fixture route combining every touched
+  surface (hero, badges, map, chart, conditions, table) plus a direct
+  `getComputedStyle` check confirming both new fonts actually loaded
+  rather than silently falling back. 118 tests unchanged, clean build.
 
 ---
 
