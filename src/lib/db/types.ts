@@ -175,6 +175,21 @@ export interface BenchmarkForecast {
   created_at: string;
 }
 
+/** ROADMAP Phase B — a proposed (not yet applied) change to a resort's SLR calibration multiplier, pending admin review. */
+export interface CalibrationRecommendation {
+  id: string;
+  resort_id: string;
+  computed_at: string;
+  sample_count: number;
+  mean_signed_error_in: number;
+  current_multiplier: number;
+  recommended_multiplier: number;
+  status: "pending" | "approved" | "rejected";
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
 /** section 6 output contract — the only interface surface for future phases. */
 export interface TripOpportunityPayload {
   resort_id: string;

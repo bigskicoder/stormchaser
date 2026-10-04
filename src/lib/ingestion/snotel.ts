@@ -1,12 +1,25 @@
 /**
  * NRCS SNOTEL ground-truth ingestion (BUILD_PRIMER section 2.2).
  *
- * ASSUMPTION FLAG: same network constraint as open-meteo.ts — this sandbox
- * cannot reach wcc.sc.egov.usda.gov, so the AWDB REST API shape below is
- * built from documented NRCS conventions (bounding-box station search,
- * WTEQ = snow-water-equivalent element code) rather than a live-validated
- * response. Verify against https://wcc.sc.egov.usda.gov/awdbRestApi/swagger-ui.html
- * before the first production run.
+ * VERIFIED (partially) via WebSearch — this sandbox's egress proxy blocks
+ * WebFetch to wcc.sc.egov.usda.gov directly (same EGRESS_BLOCKED result as
+ * every other candidate source tried for the Kuchera coefficients — see
+ * lib/scoring/slr/kuchera.ts), but search results surfaced a real,
+ * actionable correction: the AWDB REST API does NOT support server-side
+ * spatial/bounding-box queries at all. The documented pattern (per a
+ * TSTool datastore reference describing this same API) is: fetch the full
+ * station list for the network from the metadata endpoint, then filter by
+ * area of interest client-side. This module originally assumed a `bBox`
+ * query param would filter server-side — removed; now fetches the full
+ * SNTL network list once and does the nearest-match client-side (which the
+ * haversine loop below was already doing anyway, so this is a smaller fix
+ * than it sounds: drop the non-functional bBox param, stop scoping the
+ * fetch per-resort, and fetch the whole network list once per batch
+ * instead). Endpoint path/field names themselves (`/stations`, `WTEQ`,
+ * `stationTriplet`) are still unverified against a live response — if
+ * they're wrong, this returns an empty list, which the onboarding flow
+ * handles as "no coverage" rather than crashing, but it would silently
+ * under-cover resorts that do have a real nearby station.
  *
  * Used strictly for post-hoc validation (backtest/accuracy_log), never
  * joined into forward-looking scoring — avoids lookahead contamination
@@ -17,7 +30,6 @@ import { getServiceDb } from "@/lib/db/client";
 import type { Resort } from "@/lib/db/types";
 
 const AWDB_BASE_URL = "https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1";
-const SEARCH_RADIUS_DEG = 0.5; // ~55km bounding box half-width at mid-latitudes
 
 interface AwdbStation {
   stationTriplet: string;
@@ -35,28 +47,12 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-/**
- * Resolves the nearest active SNOTEL station to a resort's coordinates.
- * Returns null when nothing is found within the search radius (expected
- * for most Northeast/Midwest resorts — SNOTEL is a western-US network).
- */
-export async function resolveNearestSnotelStation(
+/** Pure nearest-match over an already-fetched station list. Exported for unit testing. */
+export function findNearestStation(
   lat: number,
-  lng: number
-): Promise<{ triplet: string; distanceKm: number } | null> {
-  const url = new URL(`${AWDB_BASE_URL}/stations`);
-  url.searchParams.set("networkCds", "SNTL");
-  url.searchParams.set("activeOnly", "true");
-  url.searchParams.set(
-    "bBox",
-    [lng - SEARCH_RADIUS_DEG, lat - SEARCH_RADIUS_DEG, lng + SEARCH_RADIUS_DEG, lat + SEARCH_RADIUS_DEG].join(",")
-  );
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`SNOTEL station search failed (${res.status})`);
-  const stations = (await res.json()) as AwdbStation[];
-  if (!stations || stations.length === 0) return null;
-
+  lng: number,
+  stations: AwdbStation[]
+): { triplet: string; distanceKm: number } | null {
   let best: AwdbStation | null = null;
   let bestDistance = Infinity;
   for (const s of stations) {
@@ -70,15 +66,46 @@ export async function resolveNearestSnotelStation(
   return { triplet: best.stationTriplet, distanceKm: bestDistance };
 }
 
+/** Fetches the full active SNTL network station list. No server-side spatial filtering — see module header. */
+export async function fetchAllSnotelStations(): Promise<AwdbStation[]> {
+  const url = new URL(`${AWDB_BASE_URL}/stations`);
+  url.searchParams.set("networkCds", "SNTL");
+  url.searchParams.set("activeOnly", "true");
+
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`SNOTEL station list fetch failed (${res.status})`);
+  return (await res.json()) as AwdbStation[];
+}
+
+/**
+ * Resolves the nearest active SNOTEL station to a resort's coordinates.
+ * Returns null when nothing is found (expected for most Northeast/Midwest
+ * resorts — SNOTEL is a western-US network). Convenience single-resort
+ * wrapper; resolveSnotelStationsForAllResorts fetches the station list
+ * once and reuses it across all resorts instead of calling this per-resort.
+ */
+export async function resolveNearestSnotelStation(
+  lat: number,
+  lng: number
+): Promise<{ triplet: string; distanceKm: number } | null> {
+  const stations = await fetchAllSnotelStations();
+  return findNearestStation(lat, lng, stations);
+}
+
 export async function resolveSnotelStationsForAllResorts(): Promise<void> {
   const db = getServiceDb();
   const { data, error } = await db.from("resorts").select("*");
   if (error) throw error;
   const resorts = (data ?? []) as Resort[];
 
+  // Fetch the station list once and reuse it for every resort, rather than
+  // one redundant full-network fetch per resort — see module header on why
+  // there's no server-side spatial filter to scope this per-resort anyway.
+  const stations = await fetchAllSnotelStations();
+
   for (const resort of resorts) {
     try {
-      const match = await resolveNearestSnotelStation(resort.lat, resort.lng);
+      const match = findNearestStation(resort.lat, resort.lng, stations);
       await db
         .from("resorts")
         .update({

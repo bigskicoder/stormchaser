@@ -22,6 +22,8 @@ export default async function AdminHomePage() {
     <>
       <p>
         <Link href="/admin/backtest">Forecast accuracy report &rarr;</Link>
+        {" · "}
+        <Link href="/admin/calibration">SLR calibration recommendations &rarr;</Link>
       </p>
       <h2 style={{ fontSize: 16, marginTop: 24 }}>Recent alerts</h2>
       <table>

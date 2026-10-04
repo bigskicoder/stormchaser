@@ -111,3 +111,28 @@ export const ALERT_RATE_LIMIT_HOURS_PER_RESORT = 24;
 // 2.1a Elevation onboarding check
 // ---------------------------------------------------------------------------
 export const ELEVATION_DISCREPANCY_FLAG_THRESHOLD_M = 150;
+
+// ---------------------------------------------------------------------------
+// ROADMAP Phase B — self-tuning SLR calibration (recommend-only).
+// Guardrails as designed in ROADMAP.md: a minimum sample size before any
+// recommendation is generated, a bounded step size per update, and hard
+// bounds on the multiplier itself so one bad storm can't swing a resort's
+// calibration wildly. Recommend-only per the roadmap's default — nothing
+// here writes to resorts.slr_calibration_multiplier without an admin
+// approving it (see lib/calibration/apply.ts).
+// ---------------------------------------------------------------------------
+
+/** Minimum accuracy_log sample count (source='powder_alert') before a resort is eligible for a recommendation at all. */
+export const CALIBRATION_MIN_SAMPLE_SIZE = 15;
+
+/** Rolling lookback window (days) of accuracy_log history considered per recommendation. */
+export const CALIBRATION_LOOKBACK_DAYS = 120;
+
+/** Max fractional change to the multiplier per recommendation (e.g. 0.05 = ±5%). */
+export const CALIBRATION_MAX_STEP_FRACTION = 0.05;
+
+/** Hard bounds on resorts.slr_calibration_multiplier — a recommendation is clamped into this range, never outside it. */
+export const CALIBRATION_MULTIPLIER_BOUNDS = { min: 0.7, max: 1.4 } as const;
+
+/** Skip generating a new recommendation for a resort while one is still pending review, to avoid pileup. */
+export const CALIBRATION_SKIP_IF_PENDING_EXISTS = true;

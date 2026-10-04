@@ -19,7 +19,21 @@ describe("kucheraStrategy", () => {
     expect(result.ratio).toBeCloseTo(12, 5);
   });
 
-  it("produces a higher ratio for colder temps (steeper below-threshold slope)", () => {
+  it("matches the published coefficients exactly at a specific cold point (slope magnitude 1 below threshold)", () => {
+    // -15C = 258.15K; delta from threshold = 258.15 - 271.16 = -13.01
+    // ratio = 12 + (-1.0) * (-13.01) = 25.01
+    const result = kucheraStrategy.computeRatio({ tmaxC: -15, calibrationMultiplier: 1 });
+    expect(result.ratio).toBeCloseTo(25.01, 2);
+  });
+
+  it("matches the published coefficients exactly at a specific warm point (slope magnitude 2 above threshold)", () => {
+    // -0.5C = 272.65K; delta from threshold = 272.65 - 271.16 = 1.49
+    // ratio = 12 + (-2.0) * (1.49) = 9.02
+    const result = kucheraStrategy.computeRatio({ tmaxC: -0.5, calibrationMultiplier: 1 });
+    expect(result.ratio).toBeCloseTo(9.02, 2);
+  });
+
+  it("produces a higher ratio for colder temps (monotonic below the threshold, shallower slope than the warm branch)", () => {
     const coldResult = kucheraStrategy.computeRatio({ tmaxC: -15, calibrationMultiplier: 1 });
     const thresholdResult = kucheraStrategy.computeRatio({ tmaxC: -2.01, calibrationMultiplier: 1 });
     expect(coldResult.ratio).toBeGreaterThan(thresholdResult.ratio);
