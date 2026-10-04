@@ -25,7 +25,7 @@ links back here for status.
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
-| D | Visual design / UI polish | ⬜ Not started | Both — can run in parallel with Phase 0 |
+| D | Visual design / UI polish | 🟡 First pass done (public site + graphic) | You (product name), then me for further passes |
 
 **Test/build state as of this update**: 82/82 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
@@ -224,44 +224,64 @@ cadence and I'll set it up.
 
 ## Phase D — Visual design / UI polish
 
-**Status: ⬜ not started. Can run in parallel with Phase 0 — doesn't block, and isn't blocked by, the backend work.**
+**Status: 🟡 first pass done** (public site + social graphic). Admin panel got a light consistency pass (new color tokens, branding), not a full redesign — still the lower priority per the plan below. Verified in an actual headless browser, not just "looks right in code" — see Session log.
 
 Added after the operator asked "is interface/UI on our roadmap?" and the
 honest answer was no — PART_1 built a functionally complete public site
 (`src/app/page.tsx`, `src/app/resorts/[slug]/page.tsx`) and admin panel
-(`src/app/admin/*`), but both are placeholder-grade: one hand-written dark
+(`src/app/admin/*`), but both were placeholder-grade: one hand-written dark
 CSS file, no component library, no responsive testing, no branding, never
-looked at in an actual browser with real data. That's a real gap for a
+looked at in an actual browser with real data. That was a real gap for a
 product whose own positioning (BUILD_PRIMER section 10.5) leans on public
 transparency as a trust-building feature — "no paywall" doesn't land if
 the page people see first looks unfinished.
 
-**What this covers:**
-- The public site's visual design — the resort grid, the detail page's
-  score table, the subscribe form. This is the page storm-chasing skiers
-  actually judge the product by.
-- The admin panel's usability (less critical — it's one operator, not a
-  public audience — but still worth a pass once the public site is done).
-- The auto-generated social graphic (`src/app/api/admin/graphic/[alertId]/route.tsx`,
-  `@vercel/og`) — currently a plain dark card with four stats. This is the
-  thing that actually gets posted to Instagram, so it's arguably higher-
-  stakes than the website itself.
-- Resolving the product name (BUILD_PRIMER section 0: "powder-alert
-  (rename TBD)") and applying real branding once decided, rather than
-  designing around a placeholder name indefinitely.
+**What's done:**
+- A real design system — CSS custom-property tokens in `globals.css`
+  ("alpine night" palette: deep navy background, icy-blue accent,
+  green/amber/slate confidence colors), Inter via `next/font/google`.
+- The public homepage (`src/app/page.tsx`): hero section with live
+  stats (resorts tracked / with signal / top score), redesigned resort
+  cards (`src/components/resort-card.tsx`, now a reusable presentational
+  component), restyled subscribe form.
+- The resort detail page (`src/app/resorts/[slug]/page.tsx`): redesigned
+  score table (`src/components/score-table.tsx`), including a mobile
+  layout that transforms the table into stacked cards via CSS
+  `data-label` attributes rather than just shrinking an unreadable table.
+- The auto-generated social graphic
+  (`src/app/api/admin/graphic/[alertId]/route.tsx`) — matches the same
+  palette, confidence-colored glow, a brand mark drawn in pure CSS
+  (tried a snowflake emoji/glyph first; Satori's default font silently
+  drops it — confirmed by rendering in isolation before committing to
+  the CSS-drawn approach instead).
+- Admin panel: hardcoded hex colors swapped for the new design tokens
+  (`src/components/post-approval-panel.tsx`,
+  `src/components/calibration-review-row.tsx`, and the backtest/
+  calibration/alert-detail admin pages) so it doesn't look visually
+  inconsistent with the redesigned public site, plus branding in the
+  admin layout header. Not a full redesign — still lower priority, per
+  the original plan.
 
-**What this does NOT need to wait for**: real Supabase data. A design
-pass can work from realistic mock data (sample resorts, sample scores,
-sample alerts) just as well as real data — Phase 0 and Phase D can
-genuinely run at the same time. What it *should* wait for is at least
-deciding the product name, since redesigning around a placeholder twice
-is wasted work.
+**How it was actually verified**: there's still no live Supabase, so a
+temporary `/design-preview` route rendered the same presentational
+components (`ResortCard`, `ScoreTable`) against realistic fixture data
+— removed once verification was done, never shipped. Screenshotted via
+`playwright-core` against the pre-installed Chromium at desktop (1440px)
+and mobile (390px) widths, actually looked at the images, found and
+fixed two real problems that way (the glow effect looked like a hard-
+edged flat circle, not a soft glow — fixed with a radial-gradient
+instead of solid-color + opacity; the social graphic's snowflake glyph
+silently failed to render — switched to a pure-CSS mark). This is the
+same "verify in a real browser before calling it done" standard the
+project's own instructions ask for, not just "the code looks plausible."
 
-**How I'd approach it**: use the `/design` skill for an actual visual
-design pass (mockups to react to) rather than more incremental hand-
-written CSS tweaks, which is how the current placeholder came to be. Not
-started — say go and I'll begin with the public homepage, since that's
-the highest-stakes single page.
+**Still open**: the product name itself (BUILD_PRIMER section 0,
+"rename TBD") — the current design uses "powder-alert" as a working
+brand, which is low-cost to swap for a real name/logo later since
+nothing about the visual system depends on this specific name. A
+resort map (Mapbox, optional per section 3) remains unbuilt. Admin
+panel beyond the color-consistency pass remains unbuilt (intentionally
+— lower priority, one operator not a public audience).
 
 ---
 
@@ -428,6 +448,18 @@ to re-read the original primer to know what's accounted for.
   primer was already built, already correctly deferred, or is now
   documented here for the first time (out-of-scope PART_2 items,
   literature cross-references, Mapbox).
+- **2026-10-04** — Phase D first pass: redesigned the public homepage,
+  resort detail page, and the Instagram social graphic into a cohesive
+  "alpine night" visual system (new design tokens in `globals.css`,
+  Inter font, extracted presentational components). Verified in an
+  actual headless browser against realistic fixture data via a
+  temporary preview route (since removed) — found and fixed two real
+  visual bugs this way (a flat hard-edged "glow" that needed to be a
+  radial gradient instead; a snowflake glyph that silently failed to
+  render in the social graphic's Satori-based image generator, replaced
+  with a pure-CSS mark). Admin panel got a color-consistency pass, not
+  a full redesign. No new tests (pure UI work) — 82 tests still passing,
+  clean build.
 
 ---
 
@@ -440,6 +472,6 @@ when you're ready) → Phase B stays dormant through a full season of real
 `accuracy_log` data before you approve your first recommendation → Phase
 B's broader constants (alert threshold, score weights) only after the
 per-resort SLR case has run a full cycle and you're comfortable with it.
-Phase D runs independently of all of this — it only needs a decided
-product name to be worth starting, not real data, so it's fine to kick
-off whenever, including right alongside Phase 0.
+Phase D ran independently of all of this and its first pass is done —
+a decided product name is the only real blocker left for a final
+polish pass (swapping "powder-alert" for the real name/logo).

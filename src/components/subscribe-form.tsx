@@ -23,7 +23,13 @@ export function SubscribeForm() {
   }
 
   if (status === "done") {
-    return <p>You&rsquo;re subscribed — we&rsquo;ll email you when a resort crosses the powder threshold.</p>;
+    return (
+      <div className="subscribe-form">
+        <p className="success-message">
+          You&rsquo;re subscribed — we&rsquo;ll email you when a resort crosses the powder threshold.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -38,7 +44,7 @@ export function SubscribeForm() {
       <button type="submit" disabled={status === "loading"}>
         {status === "loading" ? "Subscribing..." : "Get powder alerts"}
       </button>
-      {status === "error" && <p style={{ color: "#f87171", width: "100%" }}>Something went wrong — try again.</p>}
+      {status === "error" && <p style={{ color: "#f87171", width: "100%", margin: 0, fontSize: 13 }}>Something went wrong — try again.</p>}
     </form>
   );
 }

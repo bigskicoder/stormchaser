@@ -1,50 +1,61 @@
-import Link from "next/link";
-import { ConfidenceBadge } from "@/components/confidence-badge";
+import { BrandRow } from "@/components/brand-row";
+import { ResortCard } from "@/components/resort-card";
 import { SubscribeForm } from "@/components/subscribe-form";
 import { getResortsWithBestUpcomingScore } from "@/lib/public/resort-scores";
+import type { ResortWithScore } from "@/lib/public/resort-scores";
 
 // Rendered per-request rather than statically: scores change hourly, and a
 // static build has no live Supabase connection to prerender against.
 export const dynamic = "force-dynamic";
 
+function headerStats(resorts: ResortWithScore[]) {
+  const withSignal = resorts.filter((r) => r.bestUpcomingScore);
+  const topScore = withSignal.reduce<number>(
+    (max, r) => Math.max(max, r.bestUpcomingScore?.powder_score ?? 0),
+    0
+  );
+  return {
+    tracked: resorts.length,
+    withSignal: withSignal.length,
+    topScore: Math.round(topScore * 100),
+  };
+}
+
 export default async function HomePage() {
   const resorts = await getResortsWithBestUpcomingScore();
+  const stats = headerStats(resorts);
 
   return (
     <>
       <header className="site-header">
-        <div className="container" style={{ padding: 0 }}>
-          <h1>powder-alert</h1>
-          <p>Multi-model storm-signal detection for storm-chasing skiers. Every resort, every score, no paywall.</p>
+        <div className="container" style={{ paddingBottom: 0 }}>
+          <BrandRow />
+          <h1>Know before the storm hits.</h1>
+          <p className="tagline">
+            Multi-model storm-signal detection and confidence-scored powder alerts for storm-chasing skiers. Every
+            tracked resort, every score, visible here with no paywall.
+          </p>
+          <div className="header-stats">
+            <div className="header-stat">
+              <div className="num">{stats.tracked}</div>
+              <div className="label">Resorts tracked</div>
+            </div>
+            <div className="header-stat">
+              <div className="num">{stats.withSignal}</div>
+              <div className="label">With active forecast signal</div>
+            </div>
+            <div className="header-stat">
+              <div className="num">{stats.topScore}</div>
+              <div className="label">Highest powder score right now</div>
+            </div>
+          </div>
+          <SubscribeForm />
         </div>
       </header>
-      <main className="container">
-        <SubscribeForm />
+      <main className="container" style={{ paddingTop: 40 }}>
         <div className="resort-grid">
           {resorts.map(({ resort, bestUpcomingScore }) => (
-            <Link key={resort.id} href={`/resorts/${resort.slug}`} className="resort-card">
-              <h2>{resort.name}</h2>
-              <div className="meta">
-                {resort.state} &middot; {resort.pass_affiliation.toUpperCase()}
-              </div>
-              {bestUpcomingScore ? (
-                <>
-                  <div className="score-row">
-                    <span className="score">{bestUpcomingScore.estimated_snowfall_in.toFixed(0)}&Prime;</span>
-                    <ConfidenceBadge label={bestUpcomingScore.confidence_label} />
-                  </div>
-                  <div className="meta">
-                    Powder score {(bestUpcomingScore.powder_score * 100).toFixed(0)}/100 &middot;{" "}
-                    {new Date(`${bestUpcomingScore.target_date}T00:00:00Z`).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </div>
-                </>
-              ) : (
-                <p className="no-signal">No forecast signal yet</p>
-              )}
-            </Link>
+            <ResortCard key={resort.id} resort={resort} bestUpcomingScore={bestUpcomingScore} />
           ))}
         </div>
         <p className="disclaimer">

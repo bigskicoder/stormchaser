@@ -16,12 +16,12 @@ export default async function AdminBacktestPage() {
   return (
     <>
       <h2 style={{ fontSize: 18 }}>Forecast accuracy (season-to-date)</h2>
-      <p style={{ color: "#94a3b8" }}>
+      <p style={{ color: "var(--text-muted)" }}>
         Predicted snowfall vs. SNOTEL-observed liquid equivalent. Hit rate = predictions within &plusmn;2&Prime; of
         observed. See BUILD_PRIMER section 5.5 for the credibility-metric rationale — required reading before PART_2
         (booking) begins.
       </p>
-      <p style={{ color: "#94a3b8" }}>
+      <p style={{ color: "var(--text-muted)" }}>
         The &ldquo;NWS baseline&rdquo; column is a public-domain comparison (api.weather.gov gridded forecasts),
         not OpenSnow or any other proprietary product — see ROADMAP.md for why. It's here to answer &ldquo;are we
         beating a plain public forecast,&rdquo; a different and more defensible question than &ldquo;do we match a

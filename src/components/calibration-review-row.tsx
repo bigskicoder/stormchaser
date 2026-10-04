@@ -62,14 +62,14 @@ export function CalibrationReviewRow({
         <button
           onClick={() => decide("approved")}
           disabled={status === "submitting"}
-          style={{ marginRight: 8, padding: "4px 10px", borderRadius: 6, border: "none", background: "#4ade80", color: "#08131f", fontWeight: 600, cursor: "pointer" }}
+          style={{ marginRight: 8, padding: "4px 10px", borderRadius: 6, border: "none", background: "var(--high)", color: "#06111f", fontWeight: 600, cursor: "pointer" }}
         >
           Approve
         </button>
         <button
           onClick={() => decide("rejected")}
           disabled={status === "submitting"}
-          style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #23324a", background: "transparent", color: "#e8edf6", cursor: "pointer" }}
+          style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", cursor: "pointer" }}
         >
           Reject
         </button>

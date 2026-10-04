@@ -25,7 +25,7 @@ export default async function AdminAlertPage({ params }: { params: Promise<{ id:
   return (
     <>
       <h2 style={{ fontSize: 18 }}>{alert.resorts.name}</h2>
-      <p style={{ color: "#94a3b8" }}>
+      <p style={{ color: "var(--text-muted)" }}>
         Fired {new Date(alert.fired_at).toLocaleString()} &middot; {alert.recipients_count} recipients &middot;{" "}
         {alert.delivery_status}
       </p>
@@ -34,7 +34,7 @@ export default async function AdminAlertPage({ params }: { params: Promise<{ id:
         {alert.confidence_label} confidence &middot; score {(alert.powder_score_at_trigger * 100).toFixed(0)}/100
       </p>
       {!publicBaseUrl && (
-        <p style={{ color: "#facc15" }}>
+        <p style={{ color: "var(--medium)" }}>
           PUBLIC_BASE_URL is not set — the graphic preview below won&rsquo;t load and posting will fail until it&rsquo;s
           configured (Instagram needs a publicly reachable image URL).
         </p>

@@ -35,16 +35,16 @@ export function PostApprovalPanel({ alertId, graphicUrl, initialCaption }: { ale
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
           rows={8}
-          style={{ width: "100%", background: "#121b2e", color: "#e8edf6", border: "1px solid #23324a", borderRadius: 8, padding: 12 }}
+          style={{ width: "100%", background: "var(--bg-elevated)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}
         />
         <button
           onClick={onApprovePost}
           disabled={status === "posting" || status === "posted"}
-          style={{ marginTop: 12, padding: "10px 16px", borderRadius: 8, border: "none", background: "#5fb0ff", color: "#08131f", fontWeight: 600, cursor: "pointer" }}
+          style={{ marginTop: 12, padding: "10px 16px", borderRadius: 8, border: "none", background: "var(--accent)", color: "#06111f", fontWeight: 600, cursor: "pointer" }}
         >
           {status === "posting" ? "Posting..." : status === "posted" ? "Posted" : "Approve & post to Instagram"}
         </button>
-        {message && <p style={{ marginTop: 8, color: status === "error" ? "#f87171" : "#4ade80" }}>{message}</p>}
+        {message && <p style={{ marginTop: 8, color: status === "error" ? "#f87171" : "var(--high)" }}>{message}</p>}
       </div>
     </div>
   );
