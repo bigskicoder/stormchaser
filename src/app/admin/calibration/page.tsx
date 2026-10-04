@@ -20,7 +20,10 @@ export default async function AdminCalibrationPage() {
 
   return (
     <>
-      <h2 style={{ fontSize: 18 }}>SLR calibration recommendations</h2>
+      <h2 style={{ fontSize: 18 }}>
+        SLR calibration recommendations{" "}
+        {recommendations.length > 0 && <span className="badge medium">{recommendations.length} pending</span>}
+      </h2>
       <p style={{ color: "var(--text-muted)" }}>
         ROADMAP Phase B — recommend-only. Generated weekly from accuracy_log history (minimum 15 samples per resort),
         bounded to &plusmn;5% per update. Nothing here is applied until approved below; approving writes directly to

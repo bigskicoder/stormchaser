@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { getServiceDb } from "@/lib/db/client";
 import { draftCaption } from "@/lib/social/caption";
+import { ConfidenceBadge } from "@/components/confidence-badge";
 import { PostApprovalPanel } from "@/components/post-approval-panel";
+import { StatusBadge } from "@/components/status-badge";
 import type { AlertFired, Resort } from "@/lib/db/types";
 
 export const dynamic = "force-dynamic";
@@ -27,11 +29,14 @@ export default async function AdminAlertPage({ params }: { params: Promise<{ id:
       <h2 style={{ fontSize: 18 }}>{alert.resorts.name}</h2>
       <p style={{ color: "var(--text-muted)" }}>
         Fired {new Date(alert.fired_at).toLocaleString()} &middot; {alert.recipients_count} recipients &middot;{" "}
-        {alert.delivery_status}
+        <StatusBadge status={alert.delivery_status} />
       </p>
-      <p>
-        {alert.trip_opportunity_payload.estimated_snowfall_in.toFixed(1)}&quot; &middot;{" "}
-        {alert.confidence_label} confidence &middot; score {(alert.powder_score_at_trigger * 100).toFixed(0)}/100
+      <p style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span className="score" style={{ fontSize: 22, fontWeight: 800 }}>
+          {alert.trip_opportunity_payload.estimated_snowfall_in.toFixed(1)}&quot;
+        </span>
+        <ConfidenceBadge label={alert.confidence_label} />
+        <span>score {(alert.powder_score_at_trigger * 100).toFixed(0)}/100</span>
       </p>
       {!publicBaseUrl && (
         <p style={{ color: "var(--medium)" }}>

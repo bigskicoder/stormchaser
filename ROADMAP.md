@@ -25,9 +25,9 @@ links back here for status.
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
-| D | Visual design / UI polish | 🟡 First pass done (public site + graphic + resort map + resort detail visuals) | You (product name), then me for further passes |
+| D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
 
-**Test/build state as of this update**: 82/82 unit tests passing, clean
+**Test/build state as of this update**: 118/118 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -372,12 +372,33 @@ calling it done" standard the project's own instructions ask for, not
 just "the code looks plausible" — none of these four would have
 surfaced from reading the component source alone.
 
+- **Admin panel full pass** (not just the earlier color-consistency
+  swap): a persistent nav (`src/app/admin/layout.tsx`, tabs for
+  Dashboard/Forecast accuracy/SLR calibration — there was none before,
+  every page required typing a URL directly), a dashboard stat row
+  (active resorts, alerts fired in the last 30 days, pending calibration
+  reviews, `src/app/admin/page.tsx`), a reusable `StatusBadge`
+  (`src/components/status-badge.tsx`) replacing raw status strings for
+  delivery/social-post status everywhere, `ConfidenceBadge` applied to
+  the alert detail page, and a "beating NWS / even / behind" comparison
+  badge on the backtest table (`src/app/admin/backtest/page.tsx`) so the
+  public-baseline comparison reads as a visual signal, not just two
+  columns of numbers to mentally subtract. This was the one item Phase D
+  had explicitly deprioritized earlier ("lower priority, one operator
+  not a public audience") — picked up once the public-facing work was
+  done, since it was the only remaining non-blocked, non-opt-in item
+  left in the whole roadmap. Same verification discipline as the rest of
+  Phase D: a temporary `/admin-preview` fixture route (bypassing the
+  Clerk gate with fixture data, since there's no live Clerk/Supabase
+  either) rendered every new piece, screenshotted via `playwright-core`
+  at desktop and mobile widths, then removed — no new bugs found this
+  pass.
+
 **Still open**: the product name itself (BUILD_PRIMER section 0,
 "rename TBD") — the current design uses "powder-alert" as a working
 brand, which is low-cost to swap for a real name/logo later since
-nothing about the visual system depends on this specific name. Admin
-panel beyond the color-consistency pass remains unbuilt (intentionally
-— lower priority, one operator not a public audience).
+nothing about the visual system depends on this specific name. That's
+now the only open item in Phase D.
 
 ---
 

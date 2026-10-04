@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { BrandRow } from "@/components/brand-row";
 import { requireAdmin } from "@/lib/admin/authz";
@@ -24,7 +25,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         </div>
         <UserButton />
       </header>
-      {children}
+      <nav className="admin-nav">
+        <Link href="/admin">Dashboard</Link>
+        <Link href="/admin/backtest">Forecast accuracy</Link>
+        <Link href="/admin/calibration">SLR calibration</Link>
+      </nav>
+      <div style={{ paddingTop: 24 }}>{children}</div>
     </div>
   );
 }

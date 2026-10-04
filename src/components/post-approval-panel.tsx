@@ -44,7 +44,7 @@ export function PostApprovalPanel({ alertId, graphicUrl, initialCaption }: { ale
         >
           {status === "posting" ? "Posting..." : status === "posted" ? "Posted" : "Approve & post to Instagram"}
         </button>
-        {message && <p style={{ marginTop: 8, color: status === "error" ? "#f87171" : "var(--high)" }}>{message}</p>}
+        {message && <p style={{ marginTop: 8, color: status === "error" ? "var(--danger)" : "var(--high)" }}>{message}</p>}
       </div>
     </div>
   );

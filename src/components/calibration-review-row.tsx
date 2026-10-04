@@ -73,7 +73,7 @@ export function CalibrationReviewRow({
         >
           Reject
         </button>
-        {status === "error" && <div style={{ color: "#f87171", fontSize: 12, marginTop: 4 }}>{message}</div>}
+        {status === "error" && <div style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>{message}</div>}
       </td>
     </tr>
   );
