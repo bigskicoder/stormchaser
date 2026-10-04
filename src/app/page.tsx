@@ -1,5 +1,6 @@
 import { BrandRow } from "@/components/brand-row";
 import { ResortCard } from "@/components/resort-card";
+import { ResortMap } from "@/components/resort-map-loader";
 import { SubscribeForm } from "@/components/subscribe-form";
 import { getResortsWithBestUpcomingScore } from "@/lib/public/resort-scores";
 import type { ResortWithScore } from "@/lib/public/resort-scores";
@@ -53,6 +54,9 @@ export default async function HomePage() {
         </div>
       </header>
       <main className="container" style={{ paddingTop: 40 }}>
+        <h2>Where the signal is right now</h2>
+        <ResortMap resorts={resorts} />
+        <h2 style={{ marginTop: 48 }}>All tracked resorts</h2>
         <div className="resort-grid">
           {resorts.map(({ resort, bestUpcomingScore }) => (
             <ResortCard key={resort.id} resort={resort} bestUpcomingScore={bestUpcomingScore} />

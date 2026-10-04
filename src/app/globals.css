@@ -365,6 +365,138 @@ tbody tr:hover {
 }
 
 /* ---------------------------------------------------------------------
+   Resort map
+--------------------------------------------------------------------- */
+.resort-map-wrap {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+  margin-top: 40px;
+}
+
+.resort-map-canvas {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.resort-map-loading {
+  min-height: 480px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.resort-map-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.resort-map-state {
+  fill: var(--bg-elevated-hover);
+  stroke: var(--border);
+  stroke-width: 0.6;
+  outline: none;
+  transition: fill 0.1s ease;
+}
+
+.resort-map-state:hover {
+  fill: #182547;
+}
+
+.resort-map-marker {
+  cursor: pointer;
+}
+
+.resort-map-marker circle {
+  transition: r 0.1s ease;
+}
+
+.resort-map-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.resort-map-controls button {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-overlay);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.resort-map-controls button:hover {
+  background: var(--bg-elevated-hover);
+  border-color: var(--accent);
+}
+
+.resort-map-controls button.reset {
+  width: auto;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.resort-map-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+.resort-map-panel h3 {
+  font-size: 16px;
+}
+
+.resort-map-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.resort-map-legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.resort-map-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+@media (max-width: 760px) {
+  .resort-map-wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------------
    Footer / disclaimer
 --------------------------------------------------------------------- */
 .disclaimer {

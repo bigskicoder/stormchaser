@@ -25,7 +25,7 @@ links back here for status.
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
-| D | Visual design / UI polish | 🟡 First pass done (public site + graphic) | You (product name), then me for further passes |
+| D | Visual design / UI polish | 🟡 First pass done (public site + graphic + resort map) | You (product name), then me for further passes |
 
 **Test/build state as of this update**: 82/82 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
@@ -224,7 +224,7 @@ cadence and I'll set it up.
 
 ## Phase D — Visual design / UI polish
 
-**Status: 🟡 first pass done** (public site + social graphic). Admin panel got a light consistency pass (new color tokens, branding), not a full redesign — still the lower priority per the plan below. Verified in an actual headless browser, not just "looks right in code" — see Session log.
+**Status: 🟡 first pass done** (public site + social graphic + resort map). Admin panel got a light consistency pass (new color tokens, branding), not a full redesign — still the lower priority per the plan below. Verified in an actual headless browser, not just "looks right in code" — see Session log.
 
 Added after the operator asked "is interface/UI on our roadmap?" and the
 honest answer was no — PART_1 built a functionally complete public site
@@ -261,25 +261,56 @@ the page people see first looks unfinished.
   inconsistent with the redesigned public site, plus branding in the
   admin layout header. Not a full redesign — still lower priority, per
   the original plan.
+- **Interactive US resort map** (`src/components/resort-map.tsx`),
+  requested directly: "We need a map UI of the US w the resorts we have
+  overlayed on there it should be scrollable/scalable/zoomable." Renders
+  on the homepage above the resort grid — pan (drag), zoom (scroll wheel
+  or +/−/reset buttons, 1x-8x), one marker per tracked resort color-coded
+  by that resort's best-upcoming-day confidence label, click-through to
+  the resort's detail page, hover/tap side panel with the resort's
+  current best score. Built with `react-simple-maps` + `us-atlas` +
+  `d3-geo`'s `geoAlbersUsa` projection instead of the primer's named
+  Mapbox (section 3, listed as optional/low-priority): Mapbox needs an
+  API key that was never provisioned (Phase 0), and its tile servers
+  aren't reachable from this sandbox's egress proxy regardless, so a
+  Mapbox integration couldn't have been verified working at all. The
+  chosen stack renders from a local topology file
+  (`public/us-states-10m.json`, copied from the installed `us-atlas`
+  package) — zero API key, zero runtime network call, $0 forever, fully
+  testable in-sandbox, and correctly places Alaska/Hawaii via the same
+  shared projection used for both the state outlines and the resort
+  markers. Documented in the component's own header comment; swappable
+  later if a provisioned Mapbox key ever makes richer basemap imagery
+  worth the cost — nothing else in the codebase depends on this specific
+  map implementation.
 
-**How it was actually verified**: there's still no live Supabase, so a
-temporary `/design-preview` route rendered the same presentational
-components (`ResortCard`, `ScoreTable`) against realistic fixture data
-— removed once verification was done, never shipped. Screenshotted via
-`playwright-core` against the pre-installed Chromium at desktop (1440px)
-and mobile (390px) widths, actually looked at the images, found and
-fixed two real problems that way (the glow effect looked like a hard-
-edged flat circle, not a soft glow — fixed with a radial-gradient
-instead of solid-color + opacity; the social graphic's snowflake glyph
-silently failed to render — switched to a pure-CSS mark). This is the
-same "verify in a real browser before calling it done" standard the
-project's own instructions ask for, not just "the code looks plausible."
+**How it was actually verified**: there's still no live Supabase, so
+temporary preview routes (`/design-preview` for the cards/table work,
+`/map-preview` for the map) rendered the same presentational components
+against realistic fixture data — both removed once verification was
+done, never shipped. Screenshotted via `playwright-core` against the
+pre-installed Chromium at desktop (1440px) and mobile (390px) widths,
+actually looked at the images, found and fixed three real problems that
+way: the glow effect looked like a hard-edged flat circle, not a soft
+glow — fixed with a radial-gradient instead of solid-color + opacity;
+the social graphic's snowflake glyph silently failed to render —
+switched to a pure-CSS mark; the map's markers triggered a React
+hydration-mismatch warning from sub-pixel floating-point differences
+between the server's and client's `geoAlbersUsa` projection math (same
+math, different last couple of digits) — fixed by disabling SSR for
+just that component (`src/components/resort-map-loader.tsx`, a
+`next/dynamic(..., { ssr: false })` wrapper), which also shrank the
+homepage's own JS bundle since the map library now code-splits into a
+separate lazy-loaded chunk instead of shipping in the main bundle. This
+is the same "verify in a real browser before calling it done" standard
+the project's own instructions ask for, not just "the code looks
+plausible" — a console-only warning like the hydration mismatch would
+never have surfaced from reading the component's source.
 
 **Still open**: the product name itself (BUILD_PRIMER section 0,
 "rename TBD") — the current design uses "powder-alert" as a working
 brand, which is low-cost to swap for a real name/logo later since
-nothing about the visual system depends on this specific name. A
-resort map (Mapbox, optional per section 3) remains unbuilt. Admin
+nothing about the visual system depends on this specific name. Admin
 panel beyond the color-consistency pass remains unbuilt (intentionally
 — lower priority, one operator not a public audience).
 
@@ -332,10 +363,14 @@ scraping, Amadeus Self-Service API (noted dead/shut down in the primer
 itself).
 
 **Tech stack items not built (primer section 3)**: Mapbox, listed as
-"optional, low priority, if resort map visualization is implemented" —
-not implemented. No resort map exists anywhere in the current UI.
-Candidate for Phase D if a map ever seems worth the Mapbox API key +
-integration work; not required for anything else to function.
+"optional, low priority, if resort map visualization is implemented."
+The resort map itself *is* now implemented (Phase D, homepage) — just
+not with Mapbox specifically. Built with `react-simple-maps` instead,
+since Mapbox needs an unprovisioned API key and unreachable tile
+servers from this sandbox; see Phase D for the full rationale. Revisit
+Mapbox only if a key gets provisioned and richer basemap imagery
+becomes worth the integration cost — not required for anything else to
+function.
 
 **Meteorological literature (primer section 11) — reference-only, not
 data sources, cross-checked for where each one actually matters**:
@@ -459,6 +494,26 @@ to re-read the original primer to know what's accounted for.
   render in the social graphic's Satori-based image generator, replaced
   with a pure-CSS mark). Admin panel got a color-consistency pass, not
   a full redesign. No new tests (pure UI work) — 82 tests still passing,
+  clean build.
+- **2026-10-04** — Built the interactive US resort map requested
+  directly: "We need a map UI of the US w the resorts we have overlayed
+  on there it should be scrollable/scalable/zoomable"
+  (`src/components/resort-map.tsx`, wired into the homepage above the
+  resort grid). Used `react-simple-maps` + `us-atlas` + `geoAlbersUsa`
+  instead of the primer's named Mapbox (section 3, optional) since
+  Mapbox needs an unprovisioned API key and unreachable tile servers
+  from this sandbox — this stack needs neither, rendering from a bundled
+  local topology file. Verified via a temporary `/map-preview` fixture
+  route (since removed) and `playwright-core` screenshots at desktop and
+  mobile widths: pan/zoom/reset controls, marker positions (including
+  correct Alaska placement), hover/click behavior, and the confidence-
+  color legend all confirmed working. Found and fixed one real bug this
+  way — a React hydration-mismatch warning from sub-pixel floating-point
+  differences in the server vs. client `geoAlbersUsa` projection math —
+  by disabling SSR for just this component
+  (`src/components/resort-map-loader.tsx`), which also cut the
+  homepage's First Load JS from 34.3kB to 1.87kB since the map library
+  now ships as a separate lazy-loaded chunk. 82 tests still passing,
   clean build.
 
 ---
