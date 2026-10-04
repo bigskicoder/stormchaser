@@ -25,6 +25,7 @@ links back here for status.
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
+| D | Visual design / UI polish | ⬜ Not started | Both — can run in parallel with Phase 0 |
 
 **Test/build state as of this update**: 82/82 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
@@ -61,7 +62,7 @@ done without you. Ordered by what actually blocks what.
 ### Tier 4 — ongoing, after initial deploy
 12. **Let ingestion run for a few days** before judging anything — the scoring engine needs real `forecast_pulls`/`ensemble_pulls` history, and the seasonal-max normalization bootstraps cold (defaults to 24" until real history exists).
 13. **One end-to-end dry run**: once subscribers + Resend are wired, force a test alert and confirm the email actually lands, the admin graphic renders, and the Instagram publish actually works against your real account — every one of these is still unverified against a real service.
-14. **Custom domain** — genuinely optional and non-blocking, confirmed earlier in this project: Vercel gives you a free `*.vercel.app` URL automatically, and a domain can be attached later without redeploying anything. Decide on a name whenever you want, not before.
+14. **Custom domain + product name** — both genuinely optional and non-blocking. Vercel gives you a free `*.vercel.app` URL automatically, and a domain can be attached later without redeploying anything. The primer itself left the product name as "powder-alert (rename TBD)" (BUILD_PRIMER section 0) — decide on a final name whenever you want, not before; see Phase D for where branding/naming actually gets applied once decided.
 15. **Season-long accuracy burn-in** before fully trusting alerts or touching Phase B — see Phase B below.
 
 ---
@@ -221,6 +222,145 @@ cadence and I'll set it up.
 
 ---
 
+## Phase D — Visual design / UI polish
+
+**Status: ⬜ not started. Can run in parallel with Phase 0 — doesn't block, and isn't blocked by, the backend work.**
+
+Added after the operator asked "is interface/UI on our roadmap?" and the
+honest answer was no — PART_1 built a functionally complete public site
+(`src/app/page.tsx`, `src/app/resorts/[slug]/page.tsx`) and admin panel
+(`src/app/admin/*`), but both are placeholder-grade: one hand-written dark
+CSS file, no component library, no responsive testing, no branding, never
+looked at in an actual browser with real data. That's a real gap for a
+product whose own positioning (BUILD_PRIMER section 10.5) leans on public
+transparency as a trust-building feature — "no paywall" doesn't land if
+the page people see first looks unfinished.
+
+**What this covers:**
+- The public site's visual design — the resort grid, the detail page's
+  score table, the subscribe form. This is the page storm-chasing skiers
+  actually judge the product by.
+- The admin panel's usability (less critical — it's one operator, not a
+  public audience — but still worth a pass once the public site is done).
+- The auto-generated social graphic (`src/app/api/admin/graphic/[alertId]/route.tsx`,
+  `@vercel/og`) — currently a plain dark card with four stats. This is the
+  thing that actually gets posted to Instagram, so it's arguably higher-
+  stakes than the website itself.
+- Resolving the product name (BUILD_PRIMER section 0: "powder-alert
+  (rename TBD)") and applying real branding once decided, rather than
+  designing around a placeholder name indefinitely.
+
+**What this does NOT need to wait for**: real Supabase data. A design
+pass can work from realistic mock data (sample resorts, sample scores,
+sample alerts) just as well as real data — Phase 0 and Phase D can
+genuinely run at the same time. What it *should* wait for is at least
+deciding the product name, since redesigning around a placeholder twice
+is wasted work.
+
+**How I'd approach it**: use the `/design` skill for an actual visual
+design pass (mockups to react to) rather than more incremental hand-
+written CSS tweaks, which is how the current placeholder came to be. Not
+started — say go and I'll begin with the public homepage, since that's
+the highest-stakes single page.
+
+---
+
+## Primer scope audit — full BUILD_PRIMER coverage check
+
+Requested directly: confirm every item in the primer is reflected
+somewhere in this roadmap, not just the parts that got built. Cross-
+checked section by section against the live codebase.
+
+**PART_1 in-scope items (primer section 1)**: all ten are covered by
+Phases A/A.1/B above plus the README's "What's built" list — ingestion,
+reconciliation/confidence, SLR, powder_score, alerting, public site,
+trip_opportunity contract, fare enrichment, admin+social, backtest.
+Nothing missing there.
+
+**PART_1 out-of-scope items (primer section 1) — intentionally not
+built, now explicitly tracked here so they stay visible instead of only
+living in the original primer doc**:
+- Booking integration (Fora, Travelpayouts booking, Booking.com, VRBO,
+  Airbnb), payment processing, affiliate link generation — all PART_2
+  scope. Nothing in this codebase touches any of them; the
+  `trip_opportunity` payload (section 6) remains the only surface a
+  future PART_2 would plug into, per non-negotiable principle 1.
+- Wind-loading / aspect-specific microclimate modeling — Tier 3,
+  "deferred indefinitely" per the primer's own wording. No stub exists
+  for this one (the primer didn't ask for one, unlike the seasonal-
+  pattern item below) — if this ever gets built, it's a new scoring
+  input entirely (aspect/slope data this pipeline doesn't have), not a
+  tweak to something existing.
+- Long-range seasonal pattern modeling (ENSO/La Niña-El Niño) — the
+  primer explicitly asked for a stub even though the logic itself is
+  out of scope. **This one was actually missing until this audit caught
+  it** — `src/lib/scoring/slr/cobb-waldstreicher.stub.ts`'s own header
+  comment referenced "the deferred seasonal-pattern module" as if it
+  already existed, but it didn't. Added:
+  `src/lib/scoring/seasonal-pattern.stub.ts`.
+- Multi-sport expansion (surf/foliage/etc) — no code needed, just "don't
+  preclude it architecturally." Confirmed: nothing in the schema or
+  scoring engine hardcodes skiing in a way that would block this later.
+- Full user-account/profile system beyond optional email capture —
+  correctly minimal (Clerk for the admin owner, a bare `subscribers`
+  table for email capture, no profile management).
+
+**Explicitly rejected data sources (primer section 2.3) — confirmed
+never touched**: OpenSnow (addressed at length via the NWS public-
+baseline pipeline instead of scraping — see Phase A.1), Airbnb/VRBO
+scraping, Amadeus Self-Service API (noted dead/shut down in the primer
+itself).
+
+**Tech stack items not built (primer section 3)**: Mapbox, listed as
+"optional, low priority, if resort map visualization is implemented" —
+not implemented. No resort map exists anywhere in the current UI.
+Candidate for Phase D if a map ever seems worth the Mapbox API key +
+integration work; not required for anything else to function.
+
+**Meteorological literature (primer section 11) — reference-only, not
+data sources, cross-checked for where each one actually matters**:
+- Veals et al. 2025 — primary source for the Kuchera coefficients,
+  verified this session (see README's "Flagged assumptions"); also the
+  source for the fixed-ratio 12:1 baseline already implemented as the
+  backtest sanity-check strategy.
+- Kuchera, Cobb & Waldstreicher — both represented as swappable SLR
+  strategies (one live, one a documented stub).
+- **Alcott & Steenburgh 2010** (Wasatch-specific SLR variability) — the
+  primer flags this as "worth reviewing for resort-specific calibration
+  constants once backtesting is underway," which is a direct pointer at
+  **Phase B**. Not actioned yet since Phase B itself is dormant pending
+  real data — but worth remembering specifically for the Utah resorts
+  (Alta/Snowbird/Solitude/Brighton) when a human eventually reviews
+  their calibration recommendations, rather than treating every
+  resort's review identically.
+- Roebber et al. 2003 — academic reference only, explicitly not
+  implemented per the primer. Nothing to do.
+- NWS/COMET training materials — background reading, not a data
+  source. Nothing to do.
+- **Avalanche center forecaster discussions** — same "human reading
+  habit, not a data source" category as the OpenSnow manual-comparison-
+  log idea already noted in Phase A.1. Not built, same reasoning: no
+  ToS/scraping issue because there's no automated access involved, and
+  it's genuinely a qualitative sense-check rather than a system input.
+
+**AGENT_DIRECTIVE build order (primer section 12)**: all 8 steps
+completed in the original build session, in order.
+
+**Non-negotiable principles (primer section 10)**: all 5 confirmed
+honored — no booking-partner coupling anywhere, SLR/reconciliation both
+swappable interfaces, all thresholds named constants, trip_opportunity
+is the only forward-facing surface, public transparency has no auth
+wall.
+
+**Net result of this audit**: one real gap found and closed (the
+seasonal-pattern stub). Everything else in the primer was either
+already built, already correctly deferred, or is now newly visible in
+*this* document for the first time (the out-of-scope list, the
+literature cross-references, Mapbox) — a future reader shouldn't need
+to re-read the original primer to know what's accounted for.
+
+---
+
 ## Session log
 
 - **2026-08-22** — PART_1 built end-to-end (schema, ingestion, scoring
@@ -277,6 +417,17 @@ cadence and I'll set it up.
   pick the best among current assessments. Extracted as a pure function
   with 7 new tests, including the exact bug-reproduction scenario. 82
   tests.
+- **2026-10-04** — Added Phase D (visual design/UI polish, not started)
+  and a full BUILD_PRIMER coverage audit after the operator asked
+  whether interface/UI was tracked (it wasn't) and whether every primer
+  item was represented in this roadmap. The audit found one genuine
+  gap — the primer's required seasonal-pattern (ENSO) placeholder stub
+  had never actually been built, despite another file's own comment
+  referencing it as if it existed — and closed it
+  (`src/lib/scoring/seasonal-pattern.stub.ts`). Everything else in the
+  primer was already built, already correctly deferred, or is now
+  documented here for the first time (out-of-scope PART_2 items,
+  literature cross-references, Mapbox).
 
 ---
 
@@ -289,3 +440,6 @@ when you're ready) → Phase B stays dormant through a full season of real
 `accuracy_log` data before you approve your first recommendation → Phase
 B's broader constants (alert threshold, score weights) only after the
 per-resort SLR case has run a full cycle and you're comfortable with it.
+Phase D runs independently of all of this — it only needs a decided
+product name to be worth starting, not real data, so it's fine to kick
+off whenever, including right alongside Phase 0.
