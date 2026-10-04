@@ -26,6 +26,8 @@
   --medium-wash: rgba(251, 191, 36, 0.14);
   --low: #8d9ab8;
   --low-wash: rgba(141, 154, 184, 0.14);
+  --danger: #f87171;
+  --danger-wash: rgba(248, 113, 113, 0.14);
 
   --radius-lg: 18px;
   --radius-md: 14px;
@@ -323,6 +325,11 @@ h1, h2, h3 {
   color: var(--low);
 }
 
+.badge.danger {
+  background: var(--danger-wash);
+  color: var(--danger);
+}
+
 /* ---------------------------------------------------------------------
    Tables
 --------------------------------------------------------------------- */
@@ -494,6 +501,173 @@ tbody tr:hover {
   .resort-map-wrap {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------------------------------------------------------------------
+   Snowfall chart (resort detail page)
+--------------------------------------------------------------------- */
+.snowfall-chart {
+  margin-top: 24px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 16px 16px;
+  box-shadow: var(--shadow-card);
+}
+
+.snowfall-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+
+.snowfall-chart-value {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.snowfall-chart-no-data {
+  fill: var(--text-faint);
+  font-size: 12px;
+}
+
+.snowfall-chart-day-label {
+  fill: var(--text-faint);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.snowfall-chart-today-highlight {
+  fill: var(--accent-wash);
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+.snowfall-chart-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.snowfall-chart-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.snowfall-chart-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------------
+   Conditions strip (resort detail page)
+--------------------------------------------------------------------- */
+.conditions-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.conditions-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  box-shadow: var(--shadow-card);
+}
+
+.conditions-date {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.conditions-temp {
+  font-size: 22px;
+  font-weight: 800;
+  margin-top: 6px;
+}
+
+.conditions-cloud {
+  margin-top: 10px;
+}
+
+.cloud-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.cloud-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.conditions-cloud span {
+  display: block;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.conditions-wind {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.conditions-slr {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.conditions-card .badge {
+  margin-top: 10px;
+}
+
+/* ---------------------------------------------------------------------
+   Webcam embed (resort detail page)
+--------------------------------------------------------------------- */
+.webcam-embed {
+  margin-top: 24px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow-card);
+}
+
+.webcam-embed iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.webcam-embed-link {
+  margin-top: 10px;
+}
+
+.webcam-embed-empty {
+  padding: 28px 16px;
+  text-align: center;
 }
 
 /* ---------------------------------------------------------------------

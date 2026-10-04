@@ -25,7 +25,7 @@ links back here for status.
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
-| D | Visual design / UI polish | 🟡 First pass done (public site + graphic + resort map) | You (product name), then me for further passes |
+| D | Visual design / UI polish | 🟡 First pass done (public site + graphic + resort map + resort detail visuals) | You (product name), then me for further passes |
 
 **Test/build state as of this update**: 82/82 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
@@ -283,14 +283,69 @@ the page people see first looks unfinished.
   later if a provisioned Mapbox key ever makes richer basemap imagery
   worth the cost — nothing else in the codebase depends on this specific
   map implementation.
+- **Resort detail page — snowfall chart, conditions visuals, webcam**,
+  requested directly: "we need to go deeper on the individual resorts...
+  visuals (charts, etc, not just numbers)." Four additions to
+  `src/app/resorts/[slug]/page.tsx`:
+  - A custom SVG bar chart (`src/components/snowfall-chart.tsx`, no
+    charting library — same judgment call as the map, simple enough to
+    hand-roll on the existing design tokens) spanning past week
+    (observed) + today + next 5 days (predicted), each bar labeled with
+    its value, today visually highlighted. The past/future split is a
+    genuinely different data source on each side — observed SNOTEL snow
+    depth for the past, our own reconciled forecast for the future —
+    unified into one chart by a pure assembly function
+    (`src/lib/public/snowfall-timeline.ts`) so the component itself
+    doesn't need to know where any bar's number came from.
+  - A "Conditions" strip (`src/components/conditions-strip.tsx`) —
+    glanceable per-day cards for temp, a cloud-cover bar, wind
+    speed/gust, SLR, and a wind-hold badge — plus the same fields added
+    as columns to the existing `ScoreTable` for full numeric detail.
+  - A **wind-hold-probability estimate** (`src/lib/scoring/wind-hold.ts`),
+    requested directly: "if we can factor in some kind of wind hold
+    probability calculation as well that would be good." This codebase
+    has no per-resort/per-lift wind-hold policy data — nothing publishes
+    that — so it's a documented, generic logistic curve over forecast
+    wind gust (constants + full rationale in
+    `src/lib/config/constants.ts`), labeled as an estimate in the UI,
+    never a guarantee.
+  - A **webcam embed** (`src/components/webcam-embed.tsx`), requested
+    directly: "putting the resort webcams embedded into each page, pull
+    from resort pages." Same judgment call as Mapbox: automated scraping
+    of ~40+ different resort sites' webcam pages is exactly the
+    scraping-at-scale tradeoff already declined once this session for
+    OpenSnow (see "On OpenSnow" below) — not a one-time build, an
+    ongoing maintenance burden against sites this project doesn't
+    control. Instead `resorts.webcam_url` is an operator-curated field
+    (same pattern as `elevation_base_m`), iframed directly when present
+    — most resorts already publish an embeddable webcam page or player,
+    so this respects their existing infrastructure rather than
+    re-hosting it. An "Open directly ↗" link covers the case where a
+    site's frame policy blocks iframing. Every resort currently has
+    `webcam_url = null` until an operator populates it.
+
+  Building this surfaced two more real bugs, same class as the
+  UTC-vs-local one already fixed this session: `lib/scoring/run.ts`'s
+  `nextNDates` generated the scoring orchestrator's entire target-date
+  list from UTC "today" (once, shared across every resort regardless of
+  timezone) rather than each resort's own local "today" — for roughly
+  6-7 hours of every single day (the window after UTC midnight but
+  before a US resort's own local midnight), it silently skipped
+  generating *today's* score entirely. `lib/public/resort-scores.ts`'s
+  `getUpcomingScoresForResort` had the identical root cause on the read
+  side. Both fixed by resolving "today" from the resort's own timezone
+  (`localTodayIso`) instead of `new Date().toISOString()` — see
+  README.md's "Real bugs found by code review" for the full writeup and
+  a test that reproduces the exact Eastern/Pacific/UTC discrepancy.
 
 **How it was actually verified**: there's still no live Supabase, so
 temporary preview routes (`/design-preview` for the cards/table work,
-`/map-preview` for the map) rendered the same presentational components
-against realistic fixture data — both removed once verification was
+`/map-preview` for the map, `/resort-preview` for the detail-page
+visuals) rendered the same presentational components
+against realistic fixture data — all three removed once verification was
 done, never shipped. Screenshotted via `playwright-core` against the
 pre-installed Chromium at desktop (1440px) and mobile (390px) widths,
-actually looked at the images, found and fixed three real problems that
+actually looked at the images, found and fixed four real problems that
 way: the glow effect looked like a hard-edged flat circle, not a soft
 glow — fixed with a radial-gradient instead of solid-color + opacity;
 the social graphic's snowflake glyph silently failed to render —
@@ -301,11 +356,21 @@ math, different last couple of digits) — fixed by disabling SSR for
 just that component (`src/components/resort-map-loader.tsx`, a
 `next/dynamic(..., { ssr: false })` wrapper), which also shrank the
 homepage's own JS bundle since the map library now code-splits into a
-separate lazy-loaded chunk instead of shipping in the main bundle. This
-is the same "verify in a real browser before calling it done" standard
-the project's own instructions ask for, not just "the code looks
-plausible" — a console-only warning like the hydration mismatch would
-never have surfaced from reading the component's source.
+separate lazy-loaded chunk instead of shipping in the main bundle; the
+webcam embed's "Open directly ↗" link rendered as the literal text
+`&nearr;` instead of an arrow — not every named HTML entity is
+decoded in JSX text content (the common ones used elsewhere on the
+site, `&larr;`/`&middot;`/`&rsquo;`, are; this less-common one wasn't)
+— fixed by using the literal Unicode arrow character directly instead
+of relying on entity decoding. (The webcam iframe itself renders blank
+in this sandbox — confirmed separately that the sandbox's headless
+browser has no outbound route to youtube.com at all, same egress
+restriction as every other external domain this session, not a bug in
+the component; it'll render normally once deployed somewhere with real
+outbound internet.) This is the same "verify in a real browser before
+calling it done" standard the project's own instructions ask for, not
+just "the code looks plausible" — none of these four would have
+surfaced from reading the component source alone.
 
 **Still open**: the product name itself (BUILD_PRIMER section 0,
 "rename TBD") — the current design uses "powder-alert" as a working
@@ -515,6 +580,32 @@ to re-read the original primer to know what's accounted for.
   homepage's First Load JS from 34.3kB to 1.87kB since the map library
   now ships as a separate lazy-loaded chunk. 82 tests still passing,
   clean build.
+- **2026-10-04** — Built out the resort detail page per a direct request
+  to "go deeper on the individual resorts" with "visuals (charts, etc,
+  not just numbers)": a past-week/today/next-5-days snowfall bar chart
+  (`src/components/snowfall-chart.tsx`, custom SVG, no new dependency),
+  a per-day conditions strip (temp/cloud/wind/SLR/wind-hold,
+  `src/components/conditions-strip.tsx`), a generic wind-hold-probability
+  estimate (`src/lib/scoring/wind-hold.ts`, explicitly requested, clearly
+  documented as not resort-specific), and an operator-curated webcam
+  embed (`resorts.webcam_url` + `src/components/webcam-embed.tsx`, not
+  scraped — same reasoning as the Mapbox decision above, applied to
+  "pull from resort pages"). New migration (`0006_resort_detail.sql`):
+  `webcam_url`, `forecast_pulls.wind_gust_kmh`, five new `snow_scores`
+  weather/wind/hold columns computed once at scoring time, SNOTEL snow
+  depth (not just SWE) for depth-delta-based past snowfall, and a public
+  RLS read policy on `snotel_actuals`. Found and fixed two more
+  UTC-vs-local-timezone bugs of the same class already fixed earlier
+  this session (`run.ts`'s `nextNDates` and `resort-scores.ts`'s
+  `getUpcomingScoresForResort` both built their date lists/filters from
+  UTC "today" instead of each resort's own local "today" — see
+  README.md for the full writeup) and one HTML-entity rendering bug
+  (`&nearr;` not decoding in JSX text, unlike the handful of other
+  entities already in use elsewhere on the site) — all caught by the
+  same "verify in a real browser, not just read the code" discipline via
+  a temporary `/resort-preview` fixture route (since removed) and
+  `playwright-core` screenshots. 36 new tests (118 total), clean
+  typecheck, clean build.
 
 ---
 

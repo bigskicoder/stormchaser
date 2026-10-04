@@ -34,6 +34,7 @@ export const HOURLY_VARIABLES = [
   "freezing_level_height",
   "cloud_cover",
   "wind_speed_10m",
+  "wind_gusts_10m",
   "wind_direction_10m",
   "wind_speed_80m",
   "temperature_850hPa",
@@ -122,6 +123,7 @@ export interface OpenMeteoHourlyResponse {
     freezing_level_height?: (number | null)[];
     cloud_cover?: (number | null)[];
     wind_speed_10m?: (number | null)[];
+    wind_gusts_10m?: (number | null)[];
     wind_direction_10m?: (number | null)[];
     wind_speed_80m?: (number | null)[];
     temperature_850hPa?: (number | null)[];

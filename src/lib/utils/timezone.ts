@@ -10,7 +10,8 @@
  * for every single resort, every single day.
  */
 
-function addDaysToDateIso(dateIso: string, days: number): string {
+/** Adds `days` calendar days to a YYYY-MM-DD date string (no timezone involved — pure calendar-date arithmetic). */
+export function addCalendarDays(dateIso: string, days: number): string {
   const [y, m, d] = dateIso.split("-").map(Number);
   const dt = new Date(Date.UTC(y!, m! - 1, d!));
   dt.setUTCDate(dt.getUTCDate() + days);
@@ -56,8 +57,13 @@ function localMidnightToUtcMs(dateIso: string, timeZone: string): number {
  */
 export function localDateRangeToUtc(dateIso: string, timeZone: string): { start: string; end: string } {
   const startMs = localMidnightToUtcMs(dateIso, timeZone);
-  const endMs = localMidnightToUtcMs(addDaysToDateIso(dateIso, 1), timeZone);
+  const endMs = localMidnightToUtcMs(addCalendarDays(dateIso, 1), timeZone);
   return { start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
+}
+
+/** The resort's current local calendar date (YYYY-MM-DD) — convenience wrapper around utcInstantToLocalDateIso for "what day is it right now, locally." */
+export function localTodayIso(timeZone: string, now: Date = new Date()): string {
+  return utcInstantToLocalDateIso(now.getTime(), timeZone);
 }
 
 /** The local calendar date (YYYY-MM-DD) that a UTC instant falls on in `timeZone`. */

@@ -136,3 +136,30 @@ export const CALIBRATION_MULTIPLIER_BOUNDS = { min: 0.7, max: 1.4 } as const;
 
 /** Skip generating a new recommendation for a resort while one is still pending review, to avoid pileup. */
 export const CALIBRATION_SKIP_IF_PENDING_EXISTS = true;
+
+// ---------------------------------------------------------------------------
+// Resort detail page — wind-hold-probability estimate (lib/scoring/wind-hold.ts)
+//
+// NOT derived from any specific resort's actual lift wind-hold policy — this
+// codebase has no per-lift/per-resort threshold data. These are generic
+// ski-industry rule-of-thumb figures (high-speed quads/gondolas commonly
+// start holding somewhere in the 35-45 mph sustained / higher-gust range),
+// expressed as a smooth logistic curve rather than a hard cliff, since real
+// hold decisions are operator judgment calls, not a fixed threshold. Treat
+// the output as an informational estimate, flagged as such in the UI —
+// never as a guarantee a lift will or won't run.
+// ---------------------------------------------------------------------------
+
+/** Wind-gust midpoint (km/h, ~40 mph) where the logistic curve crosses 50% hold probability. */
+export const WIND_HOLD_LOGISTIC_MIDPOINT_KMH = 65;
+
+/** Logistic steepness — tuned so probability is ~3% near 40 km/h gust and ~95%+ near 90 km/h gust. */
+export const WIND_HOLD_LOGISTIC_STEEPNESS = 0.139;
+
+/**
+ * When only sustained wind speed is available (no gust data), approximate
+ * an "effective gust" by scaling it up — gusts in storm conditions are
+ * typically noticeably higher than sustained speed. A documented
+ * approximation, not a measured gust factor for any specific site.
+ */
+export const WIND_HOLD_GUST_FROM_SUSTAINED_MULTIPLIER = 1.4;

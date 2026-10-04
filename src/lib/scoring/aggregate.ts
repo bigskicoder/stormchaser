@@ -53,6 +53,55 @@ export function dailyPrecipTotalMm(rows: ForecastPull[]): number {
   return rows.reduce((sum, r) => sum + (r.swe_mm ?? 0), 0);
 }
 
+/** Mean of a numeric field across a day's hourly rows, ignoring nulls. Null if every row is null. */
+function meanField(rows: ForecastPull[], field: "temp_c" | "wind_speed_kmh" | "cloud_cover_pct"): number | null {
+  const values = rows.map((r) => r[field]).filter((v): v is number => typeof v === "number");
+  if (values.length === 0) return null;
+  return values.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+/** Day's average surface temperature (°C) across a model's hourly rows — display-only, distinct from the Kuchera column-Tmax used in scoring. */
+export function dailyAvgTempC(rows: ForecastPull[]): number | null {
+  return meanField(rows, "temp_c");
+}
+
+/** Day's average sustained wind speed (km/h). */
+export function dailyAvgWindSpeedKmh(rows: ForecastPull[]): number | null {
+  return meanField(rows, "wind_speed_kmh");
+}
+
+/** Day's average cloud cover (%). */
+export function dailyAvgCloudCoverPct(rows: ForecastPull[]): number | null {
+  return meanField(rows, "cloud_cover_pct");
+}
+
+/** Day's peak wind gust (km/h) across a model's hourly rows. Null if no row reports a gust. */
+export function dailyMaxWindGustKmh(rows: ForecastPull[]): number | null {
+  const values = rows.map((r) => r.wind_gust_kmh).filter((v): v is number => typeof v === "number");
+  if (values.length === 0) return null;
+  return Math.max(...values);
+}
+
+/**
+ * Averages a per-model daily aggregate (e.g. dailyAvgWindSpeedKmh's output
+ * for each available model) into one representative value, so the detail
+ * page shows a single number rather than one per model. A simple mean
+ * across whichever models reported a value — this is a display aggregate,
+ * not part of the reconciliation engine's scoring math.
+ */
+export function meanAcrossModels(values: Array<number | null>): number | null {
+  const present = values.filter((v): v is number => v != null);
+  if (present.length === 0) return null;
+  return present.reduce((sum, v) => sum + v, 0) / present.length;
+}
+
+/** Like meanAcrossModels but for a "worst case" figure (e.g. peak gust) where the max across models is more useful than the mean. */
+export function maxAcrossModels(values: Array<number | null>): number | null {
+  const present = values.filter((v): v is number => v != null);
+  if (present.length === 0) return null;
+  return Math.max(...present);
+}
+
 /** Precip-weighted mean column-Tmax (°C) across a day's hourly rows; falls back to a plain mean when there's no precip signal. */
 export function precipWeightedTmaxC(rows: ForecastPull[]): number {
   const withTemp = rows.filter((r) => r.temp_c != null);

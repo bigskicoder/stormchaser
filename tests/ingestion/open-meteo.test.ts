@@ -32,6 +32,7 @@ const resort: Resort = {
   nws_grid_x: null,
   nws_grid_y: null,
   nws_resolved_at: null,
+  webcam_url: null,
   active: true,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",

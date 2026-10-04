@@ -31,6 +31,8 @@ export interface Resort {
   nws_grid_x: number | null;
   nws_grid_y: number | null;
   nws_resolved_at: string | null;
+  /** Operator-curated iframe-embeddable webcam URL. Never scraped — see ROADMAP.md Phase D. */
+  webcam_url: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -49,6 +51,7 @@ export interface ForecastPull {
   precip_mm: number | null;
   temp_c: number | null;
   wind_speed_kmh: number | null;
+  wind_gust_kmh: number | null;
   wind_dir_deg: number | null;
   freezing_level_m: number | null;
   cloud_cover_pct: number | null;
@@ -85,6 +88,13 @@ export interface SnowScore {
   lead_time_hours: number;
   lead_time_fit: number;
   powder_score: number;
+  /** Daily weather/wind summary + wind-hold estimate, computed once at scoring time (lib/scoring/run.ts). Nullable: a day's model runs may not report every field. */
+  avg_temp_c: number | null;
+  avg_wind_speed_kmh: number | null;
+  max_wind_gust_kmh: number | null;
+  avg_cloud_cover_pct: number | null;
+  /** Generic lift-industry wind-hold estimate, NOT resort-specific — see lib/scoring/wind-hold.ts. */
+  wind_hold_probability: number | null;
   created_at: string;
 }
 
@@ -94,6 +104,8 @@ export interface SnotelActual {
   station_triplet: string | null;
   date: string;
   observed_swe_mm: number | null;
+  /** Raw SNOTEL SNWD (snow depth, inches). observed_depth_change_in is the day-over-day delta of this, computed in lib/ingestion/snotel.ts. */
+  snow_depth_in: number | null;
   observed_depth_change_in: number | null;
   pulled_at: string;
   created_at: string;

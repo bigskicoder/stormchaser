@@ -7,12 +7,16 @@
  */
 
 import { getAnonDb } from "@/lib/db/client";
-import type { Resort, SnowScore } from "@/lib/db/types";
+import type { Resort, SnotelActual, SnowScore } from "@/lib/db/types";
+import { addCalendarDays, localTodayIso } from "@/lib/utils/timezone";
 
 export interface ResortWithScore {
   resort: Resort;
   bestUpcomingScore: SnowScore | null;
 }
+
+/** Trailing window (days) shown in the "snowfall in the past week" chart. */
+const PAST_WEEK_WINDOW_DAYS = 7;
 
 /**
  * For each active resort, the single best-scoring upcoming day currently
@@ -41,7 +45,7 @@ export async function getResortsWithBestUpcomingScore(): Promise<ResortWithScore
 
   const results: ResortWithScore[] = [];
   for (const resort of (resorts ?? []) as Resort[]) {
-    const upcomingScores = await getUpcomingScoresForResort(resort.id);
+    const upcomingScores = await getUpcomingScoresForResort(resort.id, resort.timezone);
     const best = upcomingScores.reduce<SnowScore | null>(
       (max, row) => (!max || row.powder_score > max.powder_score ? row : max),
       null
@@ -59,9 +63,20 @@ export async function getResortBySlug(slug: string): Promise<Resort | null> {
   return (data as Resort | null) ?? null;
 }
 
-export async function getUpcomingScoresForResort(resortId: string): Promise<SnowScore[]> {
+/**
+ * BUG FIXED (found while building the resort detail page's "today"/
+ * "next 5 days" visuals, same class as the run.ts nextNDates fix): this
+ * used `new Date().toISOString().slice(0, 10)` — UTC's calendar date, not
+ * the resort's local one. For a US resort during the multi-hour window
+ * each evening/early-morning where UTC has already rolled to tomorrow but
+ * the resort's local clock hasn't, `target_date >= today` would exclude
+ * today's own row from "upcoming," since its date string compares as
+ * "less than" the (already-tomorrow) UTC cutoff. Fixed by resolving
+ * "today" from the resort's own timezone.
+ */
+export async function getUpcomingScoresForResort(resortId: string, timeZone: string): Promise<SnowScore[]> {
   const db = getAnonDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayIso(timeZone);
 
   const { data, error } = await db
     .from("snow_scores")
@@ -78,4 +93,28 @@ export async function getUpcomingScoresForResort(resortId: string): Promise<Snow
     if (!latestPerDate.has(row.target_date)) latestPerDate.set(row.target_date, row);
   }
   return Array.from(latestPerDate.values());
+}
+
+/**
+ * Trailing PAST_WEEK_WINDOW_DAYS of observed ground-truth snowfall (from
+ * SNOTEL snow-depth deltas — see lib/ingestion/snotel.ts), ending at the
+ * resort's local today. Returns one row per date that has data; a resort
+ * with no nearby SNOTEL station (common outside the western US — see
+ * lib/ingestion/snotel.ts) simply returns an empty array, which the chart
+ * component renders as "no station coverage" rather than fabricating zeros.
+ */
+export async function getPastWeekSnowfall(resortId: string, timeZone: string): Promise<SnotelActual[]> {
+  const db = getAnonDb();
+  const today = localTodayIso(timeZone);
+  const since = addCalendarDays(today, -PAST_WEEK_WINDOW_DAYS);
+
+  const { data, error } = await db
+    .from("snotel_actuals")
+    .select("*")
+    .eq("resort_id", resortId)
+    .gte("date", since)
+    .lte("date", today)
+    .order("date", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as SnotelActual[];
 }

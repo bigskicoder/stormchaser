@@ -21,6 +21,11 @@ function fixture(overrides: Partial<SnowScore>): SnowScore {
     lead_time_hours: 24,
     lead_time_fit: 1,
     powder_score: 0.8,
+    avg_temp_c: null,
+    avg_wind_speed_kmh: null,
+    max_wind_gust_kmh: null,
+    avg_cloud_cover_pct: null,
+    wind_hold_probability: null,
     created_at: "2026-01-14T12:00:00Z",
     ...overrides,
   };

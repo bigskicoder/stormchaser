@@ -10,10 +10,16 @@ import { getServiceDb } from "@/lib/db/client";
 import { DEFAULT_SLR_STRATEGY } from "@/lib/config/constants";
 import type { ModelName, Resort } from "@/lib/db/types";
 import {
+  dailyAvgCloudCoverPct,
+  dailyAvgTempC,
+  dailyAvgWindSpeedKmh,
+  dailyMaxWindGustKmh,
   dailyPrecipTotalMm,
   fetchEnsembleMemberTotalsForDay,
   fetchLatestModelRunsForDay,
   fetchSeasonalMaxSnowfallIn,
+  maxAcrossModels,
+  meanAcrossModels,
   precipWeightedTmaxC,
   primaryModelForLeadTime,
 } from "./aggregate";
@@ -21,7 +27,8 @@ import { scoreEnsembleConfidence } from "./ensemble-confidence";
 import { computeLeadTimeFit, computeNormalizedSnowfall, computePowderScore } from "./powder-score";
 import { reconcileModels } from "./reconciliation";
 import { getSlrStrategy } from "./slr";
-import { localDateRangeToUtc } from "@/lib/utils/timezone";
+import { estimateWindHoldProbability } from "./wind-hold";
+import { addCalendarDays, localDateRangeToUtc, localTodayIso } from "@/lib/utils/timezone";
 
 export interface ScoreComputation {
   resortId: string;
@@ -39,6 +46,11 @@ export interface ScoreComputation {
   leadTimeHours: number;
   leadTimeFit: number;
   powderScore: number;
+  avgTempC: number | null;
+  avgWindSpeedKmh: number | null;
+  maxWindGustKmh: number | null;
+  avgCloudCoverPct: number | null;
+  windHoldProbability: number | null;
 }
 
 /** Hours from `now` until the target date's LOCAL midnight (the resort's ski-day start), not UTC midnight. */
@@ -90,6 +102,15 @@ export async function computeScoreForResortDay(
     leadTimeFit,
   });
 
+  // Display-only daily weather/wind summary (resort detail page) — averaged
+  // across whichever models reported a day, not part of the scoring math
+  // above. See lib/scoring/aggregate.ts header on meanAcrossModels/maxAcrossModels.
+  const avgTempC = meanAcrossModels(availableModels.map((m) => dailyAvgTempC(modelRuns[m] ?? [])));
+  const avgWindSpeedKmh = meanAcrossModels(availableModels.map((m) => dailyAvgWindSpeedKmh(modelRuns[m] ?? [])));
+  const maxWindGustKmh = maxAcrossModels(availableModels.map((m) => dailyMaxWindGustKmh(modelRuns[m] ?? [])));
+  const avgCloudCoverPct = meanAcrossModels(availableModels.map((m) => dailyAvgCloudCoverPct(modelRuns[m] ?? [])));
+  const windHoldProbability = estimateWindHoldProbability({ maxWindGustKmh, avgWindSpeedKmh });
+
   return {
     resortId: resort.id,
     targetDate: targetDateIso,
@@ -106,15 +127,36 @@ export async function computeScoreForResortDay(
     leadTimeHours,
     leadTimeFit,
     powderScore,
+    avgTempC,
+    avgWindSpeedKmh,
+    maxWindGustKmh,
+    avgCloudCoverPct,
+    windHoldProbability,
   };
 }
 
-function nextNDates(n: number, from: Date = new Date()): string[] {
-  const dates: string[] = [];
-  for (let i = 0; i < n; i++) {
-    const d = new Date(from.getTime() + i * 24 * 60 * 60 * 1000);
-    dates.push(d.toISOString().slice(0, 10));
-  }
+/**
+ * The next `n` calendar dates starting from the resort's own LOCAL today,
+ * not UTC today.
+ *
+ * BUG FIXED (found while building the resort detail page, same class as
+ * the aggregate.ts/nws.ts fix): this previously took one `now` Date and
+ * sliced its UTC ISO string, computed once outside the per-resort loop and
+ * reused for every resort regardless of timezone. For US timezones (always
+ * behind UTC), UTC's calendar date rolls over to "tomorrow" several hours
+ * before any US resort's local midnight — e.g. at 6pm Mountain time, it's
+ * already past midnight UTC the next day. During that multi-hour window
+ * (roughly evening through early morning local time, every single day),
+ * the date list would start at local tomorrow instead of local today,
+ * silently skipping today's target_date entirely for a large fraction of
+ * each day's cron runs. Fixed by resolving each resort's own local today
+ * via localTodayIso(timeZone) and stepping forward with calendar-date
+ * arithmetic (addCalendarDays), not millisecond arithmetic.
+ */
+export function nextNDates(n: number, timeZone: string, now: Date = new Date()): string[] {
+  const today = localTodayIso(timeZone, now);
+  const dates: string[] = [today];
+  for (let i = 1; i < n; i++) dates.push(addCalendarDays(today, i));
   return dates;
 }
 
@@ -127,11 +169,13 @@ export async function runScoringForAllResorts(
   if (error) throw error;
   const resorts = (data ?? []) as Resort[];
 
-  const targetDates = nextNDates(horizonDays);
   let scoresWritten = 0;
   const errors: string[] = [];
 
   for (const resort of resorts) {
+    // Per-resort, not hoisted above the loop — see nextNDates' own doc
+    // comment for why a single shared date list was a real bug.
+    const targetDates = nextNDates(horizonDays, resort.timezone);
     for (const targetDate of targetDates) {
       try {
         const score = await computeScoreForResortDay(resort, targetDate);
@@ -153,6 +197,11 @@ export async function runScoringForAllResorts(
           lead_time_hours: score.leadTimeHours,
           lead_time_fit: score.leadTimeFit,
           powder_score: score.powderScore,
+          avg_temp_c: score.avgTempC,
+          avg_wind_speed_kmh: score.avgWindSpeedKmh,
+          max_wind_gust_kmh: score.maxWindGustKmh,
+          avg_cloud_cover_pct: score.avgCloudCoverPct,
+          wind_hold_probability: score.windHoldProbability,
         });
         if (insertError) throw insertError;
         scoresWritten += 1;
