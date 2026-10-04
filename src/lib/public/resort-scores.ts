@@ -14,10 +14,23 @@ export interface ResortWithScore {
   bestUpcomingScore: SnowScore | null;
 }
 
-/** For each active resort, the single best-scoring upcoming day currently on the books. */
+/**
+ * For each active resort, the single best-scoring upcoming day currently
+ * on the books.
+ *
+ * BUG FIXED (found by code review): originally queried snow_scores
+ * ordered by powder_score DESC first, computed_at DESC only as a
+ * tiebreaker, filtered only to target_date >= today. That could surface a
+ * stale, since-superseded score for a date that's still upcoming — e.g. a
+ * date scored 0.9 five days out, then correctly revised down to 0.3 as
+ * the storm's forecast changed, would still show the old 0.9 forever
+ * (the same root-cause pattern as the alert-trigger bug in
+ * lib/alerts/trigger.ts, fixed the same way: dedupe to the latest
+ * computed_at per target_date first, then pick the best among those
+ * current assessments).
+ */
 export async function getResortsWithBestUpcomingScore(): Promise<ResortWithScore[]> {
   const db = getAnonDb();
-  const today = new Date().toISOString().slice(0, 10);
 
   const { data: resorts, error: resortsError } = await db
     .from("resorts")
@@ -28,17 +41,12 @@ export async function getResortsWithBestUpcomingScore(): Promise<ResortWithScore
 
   const results: ResortWithScore[] = [];
   for (const resort of (resorts ?? []) as Resort[]) {
-    const { data: scores, error: scoresError } = await db
-      .from("snow_scores")
-      .select("*")
-      .eq("resort_id", resort.id)
-      .gte("target_date", today)
-      .order("powder_score", { ascending: false })
-      .order("computed_at", { ascending: false })
-      .limit(1);
-    if (scoresError) throw scoresError;
-
-    results.push({ resort, bestUpcomingScore: (scores ?? [])[0] as SnowScore | undefined ?? null });
+    const upcomingScores = await getUpcomingScoresForResort(resort.id);
+    const best = upcomingScores.reduce<SnowScore | null>(
+      (max, row) => (!max || row.powder_score > max.powder_score ? row : max),
+      null
+    );
+    results.push({ resort, bestUpcomingScore: best });
   }
 
   return results;

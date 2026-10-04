@@ -26,7 +26,7 @@ links back here for status.
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 
-**Test/build state as of this update**: 75/75 unit tests passing, clean
+**Test/build state as of this update**: 82/82 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -263,6 +263,20 @@ cadence and I'll set it up.
   bug — relevant since A.1 only makes sense if both sides mean the same
   day). 9 new tests, including both US DST transition days specifically.
   75 tests.
+- **2026-10-04** — Found and fixed the most severe bug of this session:
+  `lib/alerts/trigger.ts` queried a resort's entire `snow_scores`
+  history ordered by `powder_score` DESC first (no `target_date` filter
+  at all), so it would find whichever single row ever scored highest —
+  including a date long past and including a forecast later corrected
+  downward. Combined with the 24h rate limit resetting on its own, this
+  would have re-sent an alert for the same resolved storm forever, every
+  24 hours, indefinitely. The identical pattern existed in the public
+  homepage's "best upcoming score" query, lower stakes but still real
+  (a stale score could outrank its own correction). Both fixed: filter
+  to upcoming dates, dedupe to the latest `computed_at` per date, then
+  pick the best among current assessments. Extracted as a pure function
+  with 7 new tests, including the exact bug-reproduction scenario. 82
+  tests.
 
 ---
 
