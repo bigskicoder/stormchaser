@@ -26,8 +26,11 @@ links back here for status.
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 
-**Test/build state as of this update**: 51/51 unit tests passing, clean
-`tsc --noEmit`, clean `next build`. Single branch (`claude/autonomous-coding-5hk5wt`),
+**Test/build state as of this update**: 66/66 unit tests passing, clean
+`tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
+vulnerabilities reachable by this project's actual usage (1 remaining
+critical is in vitest's UI-server feature, which isn't used here — see
+"Known follow-ups" in README.md). Single branch (`claude/autonomous-coding-5hk5wt`),
 which is also this repo's default branch — no PR pending, nothing to merge.
 
 ---
@@ -40,7 +43,7 @@ done without you. Ordered by what actually blocks what.
 
 ### Tier 1 — do these first, in order (nothing else works without them)
 1. **Create a Supabase project** (free tier is fine at this scale) → copy its URL, anon key, and service-role key.
-2. **Create a Vercel project** → import `bigskicoder/stormchaser`, branch `claude/autonomous-coding-5hk5wt`.
+2. **Create a Vercel project on the Pro plan** ($20/mo) → import `bigskicoder/stormchaser`, branch `claude/autonomous-coding-5hk5wt`. **Not optional**: confirmed via WebSearch that Hobby caps at 2 active cron jobs, once-per-day each — this project's `vercel.json` has 10 jobs at hourly/6h/daily/weekly cadence and simply won't deploy as designed on Hobby.
 3. **Set env vars in Vercel**: at minimum `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and a random string for `CRON_SECRET` (Vercel sends this back automatically on its own cron calls once it's set — see `.env.example` for the full list).
 4. **Run the 5 migrations** (`supabase/migrations/0001` through `0005`) against that Supabase project — SQL editor or `supabase db push`.
 5. **Deploy** — confirm the build goes green on Vercel with real secrets (you can deploy before step 4 to sanity-check the build itself, but the app won't do anything useful until the schema exists).
@@ -236,6 +239,17 @@ cadence and I'll set it up.
   real bug in the Travelpayouts fare response parsing (wrong shape and
   field names entirely) and a stale/ambiguous API version + base-domain
   issue in the Instagram Graph API client. 62 tests.
+- **2026-10-04** — Fixed a real scalability bug (Resend's `batch.send`
+  caps at 100 emails; the original dispatch code sent one unchunked
+  batch for all matching subscribers — now chunks and tracks partial
+  failures). Confirmed and fixed an AWDB `/data` param casing issue
+  (`"DAILY"` → `"daily"`). Resolved Vercel's Hobby-plan cron limit from
+  a hedge ("confirm current limits") to a confirmed fact (2 jobs max,
+  once-per-day — Pro is required, now called out explicitly in Phase
+  0). Ran `npm audit fix`: patched two **critical** unauthenticated-RCE
+  advisories that had landed against Next.js itself since the original
+  build (non-breaking, `next` moved within its existing `^15.1.4` range
+  to `15.5.27`) — verified clean build/typecheck/tests after. 66 tests.
 
 ---
 

@@ -13,6 +13,17 @@ import { buildTripOpportunityPayload } from "@/lib/trip-opportunity";
 import type { Subscriber } from "@/lib/db/types";
 import type { TriggerCandidate } from "./trigger";
 
+/** Resend's batch.send caps at 100 emails per call (verified via WebSearch). Chunk rather than assume any resort stays under that forever. */
+const RESEND_BATCH_SIZE_LIMIT = 100;
+
+export function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 /**
  * Subscribers with an empty resort_prefs array are treated as "alert me for
  * any tracked resort" (a global subscriber) rather than "alert me for
@@ -97,23 +108,37 @@ export async function dispatchAlert(candidate: TriggerCandidate): Promise<void> 
     targetDateStart: payload.target_date_start,
   });
 
-  try {
-    const resend = getResendClient();
-    await resend.batch.send(
-      subscribers.map((s) => ({
-        from: ALERTS_FROM_EMAIL,
-        to: s.email,
-        subject,
-        html,
-      }))
-    );
-    await db
-      .from("alerts_fired")
-      .update({ delivery_status: "sent", recipients_count: subscribers.length })
-      .eq("id", alertRow.id);
-  } catch (err) {
-    await db.from("alerts_fired").update({ delivery_status: "failed" }).eq("id", alertRow.id);
-    throw err;
+  const resend = getResendClient();
+  const batches = chunk(subscribers, RESEND_BATCH_SIZE_LIMIT);
+  let sentCount = 0;
+  const batchErrors: string[] = [];
+
+  for (const batch of batches) {
+    try {
+      await resend.batch.send(
+        batch.map((s) => ({
+          from: ALERTS_FROM_EMAIL,
+          to: s.email,
+          subject,
+          html,
+        }))
+      );
+      sentCount += batch.length;
+    } catch (err) {
+      batchErrors.push((err as Error).message);
+    }
+  }
+
+  await db
+    .from("alerts_fired")
+    .update({
+      delivery_status: batchErrors.length === 0 ? "sent" : "failed",
+      recipients_count: sentCount,
+    })
+    .eq("id", alertRow.id);
+
+  if (batchErrors.length > 0) {
+    throw new Error(`${batchErrors.length}/${batches.length} email batch(es) failed: ${batchErrors.join("; ")}`);
   }
 }
 

@@ -21,6 +21,12 @@
  * handles as "no coverage" rather than crashing, but it would silently
  * under-cover resorts that do have a real nearby station.
  *
+ * A second WebSearch pass confirmed the `/data` endpoint's parameter
+ * names and order (`stationTriplets`, `elements`, `duration`, `beginDate`,
+ * `endDate`) match what this module sends — but also surfaced that the
+ * documented `duration` values are lowercase (`daily`, `hourly`, ...);
+ * this originally sent `"DAILY"` uppercase, fixed below.
+ *
  * Used strictly for post-hoc validation (backtest/accuracy_log), never
  * joined into forward-looking scoring — avoids lookahead contamination
  * per section 2.2.
@@ -150,7 +156,10 @@ export async function ingestSnotelActuals(): Promise<{ written: number; skipped:
       const url = new URL(`${AWDB_BASE_URL}/data`);
       url.searchParams.set("stationTriplets", resort.snotel_station_triplet);
       url.searchParams.set("elements", "WTEQ");
-      url.searchParams.set("duration", "DAILY");
+      // Confirmed via WebSearch this session: documented values are
+      // lowercase ("daily", "hourly", etc.) — this originally sent
+      // "DAILY" uppercase, which the API may or may not accept.
+      url.searchParams.set("duration", "daily");
       url.searchParams.set("beginDate", today);
       url.searchParams.set("endDate", today);
 
