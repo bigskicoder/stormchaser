@@ -26,7 +26,7 @@ links back here for status.
 | B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 
-**Test/build state as of this update**: 66/66 unit tests passing, clean
+**Test/build state as of this update**: 75/75 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -250,6 +250,19 @@ cadence and I'll set it up.
   advisories that had landed against Next.js itself since the original
   build (non-breaking, `next` moved within its existing `^15.1.4` range
   to `15.5.27`) — verified clean build/typecheck/tests after. 66 tests.
+- **2026-10-04** — Found (by re-reading the scoring pipeline, not a
+  WebSearch result this time) and fixed a real correctness bug that
+  predates and is independent of every API-shape issue above: day
+  boundaries throughout `lib/scoring/aggregate.ts` and
+  `lib/ingestion/nws.ts` were computed in UTC rather than each resort's
+  own local timezone. Every seeded resort sits 5-8 hours behind UTC, so
+  this silently shifted which hours counted toward "today" for every
+  resort, every score, all along. Fixed with a new dependency-free
+  `Intl`-based timezone utility and threaded through the scoring
+  orchestrator and the NWS benchmark pipeline (which had the identical
+  bug — relevant since A.1 only makes sense if both sides mean the same
+  day). 9 new tests, including both US DST transition days specifically.
+  75 tests.
 
 ---
 

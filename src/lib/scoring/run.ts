@@ -21,6 +21,7 @@ import { scoreEnsembleConfidence } from "./ensemble-confidence";
 import { computeLeadTimeFit, computeNormalizedSnowfall, computePowderScore } from "./powder-score";
 import { reconcileModels } from "./reconciliation";
 import { getSlrStrategy } from "./slr";
+import { localDateRangeToUtc } from "@/lib/utils/timezone";
 
 export interface ScoreComputation {
   resortId: string;
@@ -40,9 +41,10 @@ export interface ScoreComputation {
   powderScore: number;
 }
 
-function leadTimeHoursFor(targetDateIso: string, now: Date): number {
-  const targetStart = new Date(`${targetDateIso}T00:00:00Z`);
-  return Math.max(0, (targetStart.getTime() - now.getTime()) / (1000 * 60 * 60));
+/** Hours from `now` until the target date's LOCAL midnight (the resort's ski-day start), not UTC midnight. */
+function leadTimeHoursFor(targetDateIso: string, timeZone: string, now: Date): number {
+  const { start } = localDateRangeToUtc(targetDateIso, timeZone);
+  return Math.max(0, (new Date(start).getTime() - now.getTime()) / (1000 * 60 * 60));
 }
 
 export async function computeScoreForResortDay(
@@ -50,8 +52,8 @@ export async function computeScoreForResortDay(
   targetDateIso: string,
   now: Date = new Date()
 ): Promise<ScoreComputation | null> {
-  const leadTimeHours = leadTimeHoursFor(targetDateIso, now);
-  const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDateIso);
+  const leadTimeHours = leadTimeHoursFor(targetDateIso, resort.timezone, now);
+  const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDateIso, resort.timezone);
   const availableModels = Object.keys(modelRuns) as ModelName[];
   if (availableModels.length === 0) return null;
 
@@ -62,7 +64,7 @@ export async function computeScoreForResortDay(
 
   const reconciliation = reconcileModels(modelDailyTotals, leadTimeHours);
 
-  const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDateIso);
+  const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDateIso, resort.timezone);
   const ensembleConfidence = scoreEnsembleConfidence(ensembleMemberTotals, reconciliation.disagreementFlag);
 
   const primaryModel = primaryModelForLeadTime(leadTimeHours, availableModels) ?? availableModels[0]!;

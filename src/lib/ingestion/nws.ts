@@ -27,6 +27,7 @@
 
 import { getServiceDb } from "@/lib/db/client";
 import type { Resort } from "@/lib/db/types";
+import { localDateRangeToUtc, localDayBoundsContaining, utcInstantToLocalDateIso } from "@/lib/utils/timezone";
 
 const NWS_BASE_URL = "https://api.weather.gov";
 
@@ -108,11 +109,18 @@ export function parseIso8601Duration(duration: string): number {
 /**
  * NWS grid values are a sparse time series where each entry covers a
  * [start, start+duration) window, and windows don't align to calendar
- * days. Apportions each window's value across the UTC calendar day(s) it
- * overlaps, proportional to time overlap, then converts the per-day mm
- * total to inches. Pure function — see tests/ingestion/nws.test.ts.
+ * days. Apportions each window's value across the LOCAL calendar day(s)
+ * (in `timeZone` — the resort's own timezone, not UTC) it overlaps,
+ * proportional to time overlap, then converts the per-day mm total to
+ * inches. Using UTC days here instead would make the NWS benchmark's
+ * `target_date` mean a different real time window than our own
+ * scoring engine's `target_date` for the same resort (see
+ * lib/scoring/aggregate.ts / lib/utils/timezone.ts, fixed for the same
+ * reason) — the whole point of this comparison (section A.1) is
+ * measuring both against the same day, so this matters here too. Pure
+ * function — see tests/ingestion/nws.test.ts.
  */
-export function expandSnowfallSeriesToDailyTotalsIn(values: GridValue[]): Record<string, number> {
+export function expandSnowfallSeriesToDailyTotalsIn(values: GridValue[], timeZone: string): Record<string, number> {
   const totalsMm: Record<string, number> = {};
 
   for (const entry of values) {
@@ -126,13 +134,11 @@ export function expandSnowfallSeriesToDailyTotalsIn(values: GridValue[]): Record
 
     let cursor = startMs;
     while (cursor < endMs) {
-      const dayStart = new Date(cursor);
-      dayStart.setUTCHours(0, 0, 0, 0);
-      const nextDayStartMs = dayStart.getTime() + 24 * 60 * 60 * 1000;
-      const segmentEndMs = Math.min(endMs, nextDayStartMs);
+      const { startMs: dayStartMs, endMs: dayEndMs } = localDayBoundsContaining(cursor, timeZone);
+      const segmentEndMs = Math.min(endMs, dayEndMs);
       const overlapMs = segmentEndMs - cursor;
       const fraction = overlapMs / durationMs;
-      const dateIso = dayStart.toISOString().slice(0, 10);
+      const dateIso = utcInstantToLocalDateIso(dayStartMs, timeZone);
       totalsMm[dateIso] = (totalsMm[dateIso] ?? 0) + entry.value * fraction;
       cursor = segmentEndMs;
     }
@@ -165,16 +171,26 @@ export async function ingestNwsBenchmark(): Promise<{ written: number; skipped: 
     try {
       const forecast = await fetchGridForecast(resort.nws_grid_id, resort.nws_grid_x, resort.nws_grid_y);
       const series = forecast.properties.snowfallAmount?.values ?? [];
-      const dailyTotalsIn = expandSnowfallSeriesToDailyTotalsIn(series);
+      const dailyTotalsIn = expandSnowfallSeriesToDailyTotalsIn(series, resort.timezone);
 
-      const rows = Object.entries(dailyTotalsIn).map(([targetDate, estimatedSnowfallIn]) => ({
-        resort_id: resort.id,
-        source: "nws" as const,
-        target_date: targetDate,
-        estimated_snowfall_in: estimatedSnowfallIn,
-        lead_time_hours: Math.max(0, (new Date(`${targetDate}T00:00:00Z`).getTime() - now.getTime()) / (1000 * 60 * 60)),
-        raw_payload: { values: series },
-      }));
+      const rows = Object.entries(dailyTotalsIn).map(([targetDate, estimatedSnowfallIn]) => {
+        // targetDate is already a LOCAL calendar-date string (produced by
+        // expandSnowfallSeriesToDailyTotalsIn via utcInstantToLocalDateIso),
+        // so its lead time is local midnight for that date — not a UTC
+        // instant needing re-interpretation (localDayBoundsContaining is
+        // for the reverse case: an arbitrary UTC instant -> which local day
+        // it falls on, used inside expandSnowfallSeriesToDailyTotalsIn
+        // itself, not here).
+        const { start } = localDateRangeToUtc(targetDate, resort.timezone);
+        return {
+          resort_id: resort.id,
+          source: "nws" as const,
+          target_date: targetDate,
+          estimated_snowfall_in: estimatedSnowfallIn,
+          lead_time_hours: Math.max(0, (new Date(start).getTime() - now.getTime()) / (1000 * 60 * 60)),
+          raw_payload: { values: series },
+        };
+      });
 
       if (rows.length === 0) {
         skipped += 1;

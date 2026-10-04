@@ -14,20 +14,16 @@ import {
   leadTimeBucketFor,
 } from "@/lib/config/constants";
 import type { ForecastPull, ModelName } from "@/lib/db/types";
+import { localDateRangeToUtc } from "@/lib/utils/timezone";
 
-function dateRangeUtc(targetDateIso: string): { start: string; end: string } {
-  const start = new Date(`${targetDateIso}T00:00:00Z`);
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  return { start: start.toISOString(), end: end.toISOString() };
-}
-
-/** Fetches the most-recent-run hourly rows per model for one resort/day at the primary scoring band. */
+/** Fetches the most-recent-run hourly rows per model for one resort/day (in the resort's LOCAL calendar day, not UTC) at the primary scoring band. */
 export async function fetchLatestModelRunsForDay(
   resortId: string,
-  targetDateIso: string
+  targetDateIso: string,
+  timeZone: string
 ): Promise<Record<ModelName, ForecastPull[]>> {
   const db = getServiceDb();
-  const { start, end } = dateRangeUtc(targetDateIso);
+  const { start, end } = localDateRangeToUtc(targetDateIso, timeZone);
 
   const { data, error } = await db
     .from("forecast_pulls")
@@ -82,9 +78,9 @@ export function primaryModelForLeadTime(leadTimeHours: number, available: ModelN
   return ranked[0]?.[0] ?? null;
 }
 
-export async function fetchEnsembleMemberTotalsForDay(resortId: string, targetDateIso: string): Promise<number[]> {
+export async function fetchEnsembleMemberTotalsForDay(resortId: string, targetDateIso: string, timeZone: string): Promise<number[]> {
   const db = getServiceDb();
-  const { start, end } = dateRangeUtc(targetDateIso);
+  const { start, end } = localDateRangeToUtc(targetDateIso, timeZone);
 
   const { data, error } = await db
     .from("ensemble_pulls")
