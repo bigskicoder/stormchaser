@@ -38,6 +38,33 @@ design against real traffic.
 
 ---
 
+## Phase A.1 — Public-baseline comparison pipeline
+
+**Status: built** (`src/lib/ingestion/nws.ts`, `/api/cron/ingest-nws-benchmark`, `benchmark_forecasts` table, extended `/admin/backtest` report).
+
+The operator asked for "a pipeline to compare to OpenSnow." That specific
+request was declined — OpenSnow is a paid, proprietary product with no
+public API and a ToS that doesn't permit automated access (the
+BUILD_PRIMER already drew this exact line in section 2.3). What got built
+instead answers the same underlying question — "is our forecast actually
+good, relative to something else" — against a source that's fully
+legitimate to automate against: NWS's public-domain gridded forecasts
+(`api.weather.gov`). Both our own scoring engine and the NWS baseline are
+now measured against the same SNOTEL ground truth via `accuracy_log`
+(now `source`-tagged `powder_alert` vs `nws`), and `/admin/backtest` shows
+them side by side per resort.
+
+If a literal OpenSnow comparison is still wanted later, the legitimate
+version of that is a **manual, human-entered comparison log** — you read
+their displayed forecast yourself (you have a subscription; that's not
+automated access) and type the number in. No ToS issue, because there's
+no scraping. Not built — would need one new table and a small admin form
+if/when it's actually wanted. Phase B below could eventually treat "gap
+vs. NWS" as a second tuning signal alongside raw SNOTEL error, once both
+have enough history to be meaningful.
+
+---
+
 ## Phase B — Self-tuning calibration loop
 
 **Status: not built. Needs a real update rule + guardrails before any code is written — and needs real accuracy data before it's useful at all.**

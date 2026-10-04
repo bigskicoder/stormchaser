@@ -27,6 +27,10 @@ export interface Resort {
   snotel_station_triplet: string | null;
   snotel_station_distance_km: number | null;
   snotel_resolved_at: string | null;
+  nws_grid_id: string | null;
+  nws_grid_x: number | null;
+  nws_grid_y: number | null;
+  nws_resolved_at: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -154,7 +158,21 @@ export interface AccuracyLogRow {
   observed_equivalent_in: number | null;
   accuracy_error_in: number | null;
   lead_time_hours_at_prediction: number;
+  source: "powder_alert" | "nws";
   logged_at: string;
+}
+
+/** Public-baseline comparison forecast (currently NWS api.weather.gov gridded data). Never OpenSnow or another proprietary source — see ROADMAP.md. */
+export interface BenchmarkForecast {
+  id: string;
+  resort_id: string;
+  source: "nws";
+  target_date: string;
+  estimated_snowfall_in: number;
+  lead_time_hours: number;
+  raw_payload: unknown;
+  pulled_at: string;
+  created_at: string;
 }
 
 /** section 6 output contract — the only interface surface for future phases. */

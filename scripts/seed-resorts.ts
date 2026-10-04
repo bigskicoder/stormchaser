@@ -11,6 +11,7 @@ import { getServiceDb } from "../src/lib/db/client";
 import { RESORTS_SEED } from "../src/lib/config/resorts-seed";
 import { runElevationCheckForAllResorts } from "../src/lib/ingestion/elevation";
 import { resolveSnotelStationsForAllResorts } from "../src/lib/ingestion/snotel";
+import { resolveNwsGridpointsForAllResorts } from "../src/lib/ingestion/nws";
 
 async function main() {
   const db = getServiceDb();
@@ -51,6 +52,14 @@ async function main() {
     console.log("SNOTEL station resolution complete.");
   } catch (err) {
     console.warn("SNOTEL resolution failed (network unavailable?):", (err as Error).message);
+  }
+
+  console.log("Resolving NWS gridpoints per resort (public-baseline comparison pipeline)...");
+  try {
+    await resolveNwsGridpointsForAllResorts();
+    console.log("NWS gridpoint resolution complete.");
+  } catch (err) {
+    console.warn("NWS gridpoint resolution failed (network unavailable?):", (err as Error).message);
   }
 
   console.log("Seed complete.");
