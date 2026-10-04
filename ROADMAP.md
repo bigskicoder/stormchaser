@@ -230,6 +230,12 @@ cadence and I'll set it up.
   were backwards; NRCS SNOTEL station lookup assumed a non-existent
   server-side spatial filter). This ROADMAP rewritten into the guidance
   format you're reading. 51 tests.
+- **2026-10-04** — Continued working the roadmap: added test coverage for
+  `open-meteo.ts`'s URL-building logic (previously untested), and
+  WebSearch-verified two more flagged integrations — found and fixed a
+  real bug in the Travelpayouts fare response parsing (wrong shape and
+  field names entirely) and a stale/ambiguous API version + base-domain
+  issue in the Instagram Graph API client. 62 tests.
 
 ---
 

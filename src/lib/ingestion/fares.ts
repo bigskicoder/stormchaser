@@ -4,9 +4,20 @@
  * Must never block or delay alert firing (see lib/alerts/dispatch.ts, which
  * does not await this module).
  *
- * ASSUMPTION FLAG: same network constraint as the other ingestion modules —
- * built from documented Travelpayouts Data API conventions
- * (`/v1/prices/cheap`), not a live-validated response.
+ * VERIFIED this session via WebSearch (api.travelpayouts.com itself is not
+ * reachable from this sandbox — WebFetch returns EGRESS_BLOCKED for it same
+ * as every other candidate domain — but WebSearch surfaced the actual
+ * response shape documented at travelpayouts-data-api.readthedocs.io):
+ * the response is `{success: boolean, data: Array<{origin, destination,
+ * value, depart_date, return_date, ...}>}` — a FLAT ARRAY, not nested by
+ * destination/flight-key as originally assumed. Field names also differ
+ * from the original guess: `value` not `price`, `depart_date`/`return_date`
+ * not `departure_at`/`return_at`. Fixed below. `airline` wasn't confirmed
+ * in the search summary (the field list shown was value/depart_date/
+ * return_date/number_of_changes/found_at/distance/actual/trip_class/
+ * show_to_affiliates) — kept as optional and nullable rather than assumed
+ * present, since section 2.4 treats this whole enrichment as optional
+ * anyway.
  */
 
 import { getServiceDb } from "@/lib/db/client";
@@ -66,25 +77,22 @@ function destinationAirportFor(resort: Resort): string {
 }
 
 interface CheapPricesResponse {
-  data: Record<
-    string,
-    Record<
-      string,
-      Array<{
-        price: number;
-        airline: string;
-        departure_at: string;
-        return_at?: string;
-      }>
-    >
-  >;
+  success: boolean;
+  data: Array<{
+    origin: string;
+    destination: string;
+    value: number;
+    depart_date: string;
+    return_date?: string | null;
+    airline?: string | null;
+  }>;
 }
 
 async function fetchCheapestFare(params: {
   origin: string;
   destination: string;
   token: string;
-}): Promise<{ price: number; airline: string; departDate: string; returnDate: string | null } | null> {
+}): Promise<{ price: number; airline: string | null; departDate: string; returnDate: string | null } | null> {
   const url = new URL(`${TRAVELPAYOUTS_BASE_URL}/v1/prices/cheap`);
   url.searchParams.set("origin", params.origin);
   url.searchParams.set("destination", params.destination);
@@ -95,17 +103,15 @@ async function fetchCheapestFare(params: {
   if (!res.ok) throw new Error(`Travelpayouts request failed (${res.status})`);
   const body = (await res.json()) as CheapPricesResponse;
 
-  const destEntry = body.data?.[params.destination];
-  if (!destEntry) return null;
-  const flights = Object.values(destEntry).flat();
+  const flights = body.data ?? [];
   if (flights.length === 0) return null;
 
-  const cheapest = flights.reduce((min, f) => (f.price < min.price ? f : min));
+  const cheapest = flights.reduce((min, f) => (f.value < min.value ? f : min));
   return {
-    price: cheapest.price,
-    airline: cheapest.airline,
-    departDate: cheapest.departure_at.slice(0, 10),
-    returnDate: cheapest.return_at ? cheapest.return_at.slice(0, 10) : null,
+    price: cheapest.value,
+    airline: cheapest.airline ?? null,
+    departDate: cheapest.depart_date,
+    returnDate: cheapest.return_date ?? null,
   };
 }
 
