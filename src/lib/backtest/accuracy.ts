@@ -29,7 +29,7 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
-import type { BenchmarkForecast, Resort, SnowScore, SnotelActual } from "@/lib/db/types";
+import type { AccuracyLogSource, BenchmarkForecast, Resort, SnowScore, SnotelActual } from "@/lib/db/types";
 
 function yesterdayIso(): string {
   const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -165,7 +165,7 @@ export async function runBacktestForDate(targetDateIso: string = yesterdayIso())
 export interface AccuracySummary {
   resortId: string;
   resortName: string;
-  source: "powder_alert" | "nws";
+  source: AccuracyLogSource;
   sampleCount: number;
   meanAbsoluteErrorIn: number;
   hitRatePct: number; // % of predictions within +/-2in of observed equivalent
@@ -183,11 +183,11 @@ export async function getAccuracySummary(): Promise<AccuracySummary[]> {
 
   type Row = {
     resort_id: string;
-    source: "powder_alert" | "nws";
+    source: AccuracyLogSource;
     accuracy_error_in: number;
     resorts: { name: string } | { name: string }[] | null;
   };
-  const grouped = new Map<string, { resortId: string; name: string; source: "powder_alert" | "nws"; errors: number[] }>();
+  const grouped = new Map<string, { resortId: string; name: string; source: AccuracyLogSource; errors: number[] }>();
 
   for (const row of (data ?? []) as Row[]) {
     const nameField = row.resorts;

@@ -122,7 +122,7 @@ export const ELEVATION_DISCREPANCY_FLAG_THRESHOLD_M = 150;
 // approving it (see lib/calibration/apply.ts).
 // ---------------------------------------------------------------------------
 
-/** Minimum accuracy_log sample count (source='powder_alert') before a resort is eligible for a recommendation at all. */
+/** Minimum pooled accuracy_log sample count (live 'powder_alert' + the two backtest sources, see CALIBRATION_BACKTEST_SOURCES below) before a resort is eligible for a recommendation at all. */
 export const CALIBRATION_MIN_SAMPLE_SIZE = 15;
 
 /** Rolling lookback window (days) of accuracy_log history considered per recommendation. */
@@ -136,6 +136,23 @@ export const CALIBRATION_MULTIPLIER_BOUNDS = { min: 0.7, max: 1.4 } as const;
 
 /** Skip generating a new recommendation for a resort while one is still pending review, to avoid pileup. */
 export const CALIBRATION_SKIP_IF_PENDING_EXISTS = true;
+
+/**
+ * accuracy_log sources pooled alongside live 'powder_alert' data when
+ * computing a calibration recommendation — see lib/backtest/ for what each
+ * one actually validates, and lib/calibration/generate.ts for how they're
+ * combined. Deliberately NOT subject to CALIBRATION_LOOKBACK_DAYS (that
+ * window exists so live calibration tracks *current* model behavior,
+ * which doesn't apply to a historical backtest result — a storm from
+ * years ago run through today's SLR formula is still a valid data point
+ * about that formula, it doesn't go stale the way live recency does).
+ * This pooling is a methodological approximation, not a perfectly clean
+ * blend — see lib/backtest/slr-reanalysis.ts's header for the one real
+ * caveat (SLR-only error vs. end-to-end error). Acceptable given Phase B
+ * stays bounded, recommend-only, and human-approved regardless of which
+ * source proposed it.
+ */
+export const CALIBRATION_BACKTEST_SOURCES = ["slr_reanalysis_backtest", "reconciliation_forecast_backtest"] as const;
 
 // ---------------------------------------------------------------------------
 // Resort detail page — wind-hold-probability estimate (lib/scoring/wind-hold.ts)

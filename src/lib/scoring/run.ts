@@ -8,7 +8,7 @@
 
 import { getServiceDb } from "@/lib/db/client";
 import { DEFAULT_SLR_STRATEGY } from "@/lib/config/constants";
-import type { ModelName, Resort } from "@/lib/db/types";
+import type { ForecastPull, ModelName, Resort } from "@/lib/db/types";
 import {
   dailyAvgCloudCoverPct,
   dailyAvgTempC,
@@ -59,13 +59,29 @@ function leadTimeHoursFor(targetDateIso: string, timeZone: string, now: Date): n
   return Math.max(0, (new Date(start).getTime() - now.getTime()) / (1000 * 60 * 60));
 }
 
-export async function computeScoreForResortDay(
-  resort: Resort,
-  targetDateIso: string,
-  now: Date = new Date()
-): Promise<ScoreComputation | null> {
-  const leadTimeHours = leadTimeHoursFor(targetDateIso, resort.timezone, now);
-  const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDateIso, resort.timezone);
+export interface ScoreInputs {
+  resortId: string;
+  targetDate: string;
+  leadTimeHours: number;
+  /** One day's hourly rows per model, already filtered to the primary scoring band and deduped to the latest run — see aggregate.ts fetchLatestModelRunsForDay. */
+  modelRuns: Partial<Record<ModelName, ForecastPull[]>>;
+  /** Ensemble member SWE totals for the day. Pass [] when no ensemble data exists (e.g. a historical backtest with no archived ensemble) — scoreEnsembleConfidence treats an empty array as zero spread, so the resulting confidence_label/ensemble_spread_score in that case isn't a meaningful signal and callers that do this should not persist it as if it were. */
+  ensembleMemberTotals: number[];
+  slrCalibrationMultiplier: number;
+  seasonalMaxSnowfallIn: number;
+}
+
+/**
+ * The full reconcile -> ensemble-confidence -> SLR -> powder-score pipeline
+ * as a pure function — no DB access. Extracted from computeScoreForResortDay
+ * so the exact same scoring logic can run against either live `forecast_pulls`
+ * (the normal path, via the wrapper below) or historical forecast-archive
+ * data (lib/backtest/reconciliation-forecast-archive.ts), without the two
+ * ever drifting apart into two subtly different implementations.
+ */
+export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | null {
+  const { resortId, targetDate, leadTimeHours, modelRuns, ensembleMemberTotals, slrCalibrationMultiplier, seasonalMaxSnowfallIn } =
+    inputs;
   const availableModels = Object.keys(modelRuns) as ModelName[];
   if (availableModels.length === 0) return null;
 
@@ -75,8 +91,6 @@ export async function computeScoreForResortDay(
   }
 
   const reconciliation = reconcileModels(modelDailyTotals, leadTimeHours);
-
-  const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDateIso, resort.timezone);
   const ensembleConfidence = scoreEnsembleConfidence(ensembleMemberTotals, reconciliation.disagreementFlag);
 
   const primaryModel = primaryModelForLeadTime(leadTimeHours, availableModels) ?? availableModels[0]!;
@@ -85,15 +99,14 @@ export async function computeScoreForResortDay(
   const slrStrategy = getSlrStrategy(DEFAULT_SLR_STRATEGY);
   const slrResult = slrStrategy.computeRatio({
     tmaxC,
-    calibrationMultiplier: resort.slr_calibration_multiplier,
+    calibrationMultiplier: slrCalibrationMultiplier,
   });
 
   const estimatedSnowfallIn = slrResult.isRainCase
     ? 0
     : (reconciliation.reconciledValue * slrResult.ratio) / 25.4;
 
-  const seasonalMaxIn = await fetchSeasonalMaxSnowfallIn(resort.id);
-  const normalizedSnowfall = computeNormalizedSnowfall(estimatedSnowfallIn, seasonalMaxIn);
+  const normalizedSnowfall = computeNormalizedSnowfall(estimatedSnowfallIn, seasonalMaxSnowfallIn);
   const leadTimeFit = computeLeadTimeFit(leadTimeHours);
 
   const powderScore = computePowderScore({
@@ -112,8 +125,8 @@ export async function computeScoreForResortDay(
   const windHoldProbability = estimateWindHoldProbability({ maxWindGustKmh, avgWindSpeedKmh });
 
   return {
-    resortId: resort.id,
-    targetDate: targetDateIso,
+    resortId,
+    targetDate,
     reconciledSweMm: reconciliation.reconciledValue,
     disagreementFlag: reconciliation.disagreementFlag,
     modelAgreementScore: reconciliation.modelAgreementScore,
@@ -133,6 +146,27 @@ export async function computeScoreForResortDay(
     avgCloudCoverPct,
     windHoldProbability,
   };
+}
+
+export async function computeScoreForResortDay(
+  resort: Resort,
+  targetDateIso: string,
+  now: Date = new Date()
+): Promise<ScoreComputation | null> {
+  const leadTimeHours = leadTimeHoursFor(targetDateIso, resort.timezone, now);
+  const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDateIso, resort.timezone);
+  const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDateIso, resort.timezone);
+  const seasonalMaxIn = await fetchSeasonalMaxSnowfallIn(resort.id);
+
+  return computeScoreFromInputs({
+    resortId: resort.id,
+    targetDate: targetDateIso,
+    leadTimeHours,
+    modelRuns,
+    ensembleMemberTotals,
+    slrCalibrationMultiplier: resort.slr_calibration_multiplier,
+    seasonalMaxSnowfallIn: seasonalMaxIn,
+  });
 }
 
 /**

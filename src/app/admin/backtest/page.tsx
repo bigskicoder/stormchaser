@@ -19,6 +19,11 @@ function CompareBadge({ powderAlertHitRatePct, nwsHitRatePct }: { powderAlertHit
   );
 }
 
+const BACKTEST_SOURCE_LABEL: Record<string, string> = {
+  slr_reanalysis_backtest: "SLR vs. reanalysis",
+  reconciliation_forecast_backtest: "Full pipeline vs. forecast archive",
+};
+
 export default async function AdminBacktestPage() {
   const summary = await getAccuracySummary();
 
@@ -29,6 +34,15 @@ export default async function AdminBacktestPage() {
     if (row.source === "nws") entry.nws = row;
     byResort.set(row.resortId, entry);
   }
+
+  // Deliberately kept out of the live-vs-NWS table above: these rows come
+  // from a one-off historical backtest script run (see ROADMAP.md), not
+  // live production traffic, and mixing "how we're doing right now" with
+  // "how the formula would have done on storms from years ago" into one
+  // table risks reading backtest numbers as live operational ones.
+  const historicalBacktestRows = summary.filter(
+    (row) => row.source === "slr_reanalysis_backtest" || row.source === "reconciliation_forecast_backtest"
+  );
 
   return (
     <>
@@ -76,6 +90,46 @@ export default async function AdminBacktestPage() {
             <tr>
               <td colSpan={8} className="no-signal">
                 No backtest data yet — accumulates as the daily backtest cron runs against SNOTEL actuals.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <h2 style={{ fontSize: 18, marginTop: 40 }}>Pre-season historical backtest</h2>
+      <p style={{ color: "var(--text-muted)" }}>
+        Run on demand via <code>npm run backtest:slr-reanalysis</code> and <code>npm run backtest:reconciliation</code>{" "}
+        (see ROADMAP.md) — validates the scoring logic against storms from years ago, so Phase B calibration doesn&rsquo;t
+        have to wait out a full live season before it has something to learn from. &ldquo;SLR vs. reanalysis&rdquo;
+        checks only the snow-to-liquid conversion, against ~85 years of ERA5 reanalysis. &ldquo;Full pipeline vs.
+        forecast archive&rdquo; checks reconciliation + SLR together, against real archived model forecasts, but only
+        back to ~2021 and at a nominal short lead time &mdash; see that pipeline&rsquo;s own code comments for the full
+        caveat on what it does and doesn&rsquo;t validate.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Resort</th>
+            <th>Method</th>
+            <th>Samples</th>
+            <th>MAE</th>
+            <th>Hit rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {historicalBacktestRows.map((row) => (
+            <tr key={`${row.resortId}:${row.source}`}>
+              <td data-label="Resort">{row.resortName}</td>
+              <td data-label="Method">{BACKTEST_SOURCE_LABEL[row.source] ?? row.source}</td>
+              <td data-label="Samples">{row.sampleCount}</td>
+              <td data-label="MAE">{row.meanAbsoluteErrorIn.toFixed(2)}&quot;</td>
+              <td data-label="Hit rate">{row.hitRatePct.toFixed(0)}%</td>
+            </tr>
+          ))}
+          {historicalBacktestRows.length === 0 && (
+            <tr>
+              <td colSpan={5} className="no-signal">
+                No historical backtest data yet — run one of the scripts above.
               </td>
             </tr>
           )}

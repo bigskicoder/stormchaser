@@ -178,6 +178,78 @@ export function computeDepthChangeSeries(
   return result;
 }
 
+/**
+ * Pulls WTEQ + SNWD for one resort over an explicit date range and upserts
+ * one row per date. Shared by the live rolling-window cron (ingestSnotelActuals
+ * below) and the historical backtest scripts (scripts/backtest-*.ts), which
+ * need the exact same ground-truth data but for a date range from years ago,
+ * not "the last 10 days." A single AWDB request comfortably covers decades
+ * for one station (daily WTEQ+SNWD over 30 years is ~22k data points, well
+ * under the ~500k-point request ceiling other AWDB client libraries chunk
+ * around — see this module's header), so no chunking is needed here even
+ * for a full-history backfill.
+ */
+export async function backfillSnotelActualsForResort(
+  resort: Resort,
+  beginDate: string,
+  endDate: string
+): Promise<{ written: number; skipped: boolean; error?: string }> {
+  const db = getServiceDb();
+  if (!resort.snotel_station_triplet) return { written: 0, skipped: true };
+
+  try {
+    const url = new URL(`${AWDB_BASE_URL}/data`);
+    url.searchParams.set("stationTriplets", resort.snotel_station_triplet);
+    url.searchParams.set("elements", "WTEQ,SNWD");
+    // Confirmed via WebSearch this session: documented values are
+    // lowercase ("daily", "hourly", etc.) — this originally sent
+    // "DAILY" uppercase, which the API may or may not accept.
+    url.searchParams.set("duration", "daily");
+    url.searchParams.set("beginDate", beginDate);
+    url.searchParams.set("endDate", endDate);
+
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`AWDB data request failed (${res.status})`);
+    const points = (await res.json()) as AwdbDataPoint[];
+    const wteqSeries = points[0]?.data.find((d) => d.stationElement.elementCode === "WTEQ");
+    const snwdSeries = points[0]?.data.find((d) => d.stationElement.elementCode === "SNWD");
+    if (!wteqSeries && !snwdSeries) return { written: 0, skipped: true };
+
+    const wteqByDate = new Map((wteqSeries?.values ?? []).map((v) => [v.date, v.value]));
+    const depthPoints = (snwdSeries?.values ?? []).map((v) => ({ date: v.date, depthIn: v.value }));
+    const depthChanges = computeDepthChangeSeries(depthPoints);
+
+    // Union of every date either element reported, so a day with only
+    // WTEQ (or only SNWD) still gets a row instead of being dropped.
+    const allDates = new Set<string>([...wteqByDate.keys(), ...depthChanges.map((d) => d.date)]);
+    const changeByDate = new Map(depthChanges.map((d) => [d.date, d]));
+
+    let written = 0;
+    for (const date of allDates) {
+      const wteqValue = wteqByDate.get(date);
+      const depthChange = changeByDate.get(date);
+      const observedSweMm = wteqValue != null ? wteqValue * 25.4 : null; // WTEQ reported in inches
+
+      const { error: upsertError } = await db.from("snotel_actuals").upsert(
+        {
+          resort_id: resort.id,
+          station_triplet: resort.snotel_station_triplet,
+          date,
+          observed_swe_mm: observedSweMm,
+          snow_depth_in: depthChange?.depthIn ?? null,
+          observed_depth_change_in: depthChange?.changeIn ?? null,
+        },
+        { onConflict: "resort_id,date" }
+      );
+      if (upsertError) throw upsertError;
+      written += 1;
+    }
+    return { written, skipped: false };
+  } catch (err) {
+    return { written: 0, skipped: false, error: (err as Error).message };
+  }
+}
+
 /** Pulls a rolling window of WTEQ + SNWD for every resort with a resolved station, upserting one row per (resort, date). */
 export async function ingestSnotelActuals(): Promise<{ written: number; skipped: number; errors: string[] }> {
   const db = getServiceDb();
@@ -193,62 +265,10 @@ export async function ingestSnotelActuals(): Promise<{ written: number; skipped:
   const beginDate = new Date(today.getTime() - SNOTEL_BACKFILL_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   for (const resort of resorts) {
-    if (!resort.snotel_station_triplet) {
-      skipped += 1;
-      continue;
-    }
-    try {
-      const url = new URL(`${AWDB_BASE_URL}/data`);
-      url.searchParams.set("stationTriplets", resort.snotel_station_triplet);
-      url.searchParams.set("elements", "WTEQ,SNWD");
-      // Confirmed via WebSearch this session: documented values are
-      // lowercase ("daily", "hourly", etc.) — this originally sent
-      // "DAILY" uppercase, which the API may or may not accept.
-      url.searchParams.set("duration", "daily");
-      url.searchParams.set("beginDate", beginDate);
-      url.searchParams.set("endDate", endDate);
-
-      const res = await fetch(url.toString());
-      if (!res.ok) throw new Error(`AWDB data request failed (${res.status})`);
-      const points = (await res.json()) as AwdbDataPoint[];
-      const wteqSeries = points[0]?.data.find((d) => d.stationElement.elementCode === "WTEQ");
-      const snwdSeries = points[0]?.data.find((d) => d.stationElement.elementCode === "SNWD");
-      if (!wteqSeries && !snwdSeries) {
-        skipped += 1;
-        continue;
-      }
-
-      const wteqByDate = new Map((wteqSeries?.values ?? []).map((v) => [v.date, v.value]));
-      const depthPoints = (snwdSeries?.values ?? []).map((v) => ({ date: v.date, depthIn: v.value }));
-      const depthChanges = computeDepthChangeSeries(depthPoints);
-
-      // Union of every date either element reported, so a day with only
-      // WTEQ (or only SNWD) still gets a row instead of being dropped.
-      const allDates = new Set<string>([...wteqByDate.keys(), ...depthChanges.map((d) => d.date)]);
-      const changeByDate = new Map(depthChanges.map((d) => [d.date, d]));
-
-      for (const date of allDates) {
-        const wteqValue = wteqByDate.get(date);
-        const depthChange = changeByDate.get(date);
-        const observedSweMm = wteqValue != null ? wteqValue * 25.4 : null; // WTEQ reported in inches
-
-        const { error: upsertError } = await db.from("snotel_actuals").upsert(
-          {
-            resort_id: resort.id,
-            station_triplet: resort.snotel_station_triplet,
-            date,
-            observed_swe_mm: observedSweMm,
-            snow_depth_in: depthChange?.depthIn ?? null,
-            observed_depth_change_in: depthChange?.changeIn ?? null,
-          },
-          { onConflict: "resort_id,date" }
-        );
-        if (upsertError) throw upsertError;
-        written += 1;
-      }
-    } catch (err) {
-      errors.push(`${resort.slug}: ${(err as Error).message}`);
-    }
+    const result = await backfillSnotelActualsForResort(resort, beginDate, endDate);
+    written += result.written;
+    if (result.skipped) skipped += 1;
+    if (result.error) errors.push(`${resort.slug}: ${result.error}`);
   }
 
   return { written, skipped, errors };

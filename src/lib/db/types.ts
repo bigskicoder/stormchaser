@@ -7,6 +7,15 @@ export type ConfidenceLabel = "low" | "medium" | "high";
 export type DeliveryStatus = "pending" | "sent" | "failed" | "skipped_rate_limited";
 export type SocialPostStatus = "draft" | "approved" | "publishing" | "posted" | "failed";
 export type SlrStrategyName = "kuchera" | "fixed-ratio" | "cobb-waldstreicher";
+/**
+ * accuracy_log.source — no DB-level CHECK constraint (see migration 0004's
+ * comment), so this union is the only place new values are declared.
+ * 'powder_alert' = live production predictions. 'nws' = the public-baseline
+ * comparison (Phase A.1). 'slr_reanalysis_backtest' / 'reconciliation_forecast_backtest'
+ * = the two historical backtest pipelines (lib/backtest/) — see their own
+ * header comments for what each validates and why they're separate.
+ */
+export type AccuracyLogSource = "powder_alert" | "nws" | "slr_reanalysis_backtest" | "reconciliation_forecast_backtest";
 
 export interface Resort {
   id: string;
@@ -170,7 +179,7 @@ export interface AccuracyLogRow {
   observed_equivalent_in: number | null;
   accuracy_error_in: number | null;
   lead_time_hours_at_prediction: number;
-  source: "powder_alert" | "nws";
+  source: AccuracyLogSource;
   logged_at: string;
 }
 

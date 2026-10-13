@@ -8,7 +8,7 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
-import { CALIBRATION_LOOKBACK_DAYS, CALIBRATION_SKIP_IF_PENDING_EXISTS } from "@/lib/config/constants";
+import { CALIBRATION_BACKTEST_SOURCES, CALIBRATION_LOOKBACK_DAYS, CALIBRATION_SKIP_IF_PENDING_EXISTS } from "@/lib/config/constants";
 import type { Resort } from "@/lib/db/types";
 import { computeCalibrationRecommendation, type AccuracySample } from "./recommend";
 
@@ -43,16 +43,29 @@ export async function generateCalibrationRecommendations(): Promise<{
         }
       }
 
-      const { data: logRows, error: logError } = await db
+      // Live data stays windowed to recent history (CALIBRATION_LOOKBACK_DAYS)
+      // so calibration tracks current model behavior. Backtest sources are
+      // pooled in separately, unwindowed — see CALIBRATION_BACKTEST_SOURCES'
+      // own doc comment for why a historical result doesn't go stale the
+      // same way live recency does.
+      const { data: liveRows, error: liveError } = await db
         .from("accuracy_log")
         .select("predicted_snowfall_in, accuracy_error_in")
         .eq("resort_id", resort.id)
         .eq("source", "powder_alert")
         .gte("target_date", since.slice(0, 10))
         .not("accuracy_error_in", "is", null);
-      if (logError) throw logError;
+      if (liveError) throw liveError;
 
-      const samples: AccuracySample[] = (logRows ?? []).map((r) => ({
+      const { data: backtestRows, error: backtestError } = await db
+        .from("accuracy_log")
+        .select("predicted_snowfall_in, accuracy_error_in")
+        .eq("resort_id", resort.id)
+        .in("source", CALIBRATION_BACKTEST_SOURCES)
+        .not("accuracy_error_in", "is", null);
+      if (backtestError) throw backtestError;
+
+      const samples: AccuracySample[] = [...(liveRows ?? []), ...(backtestRows ?? [])].map((r) => ({
         predictedIn: r.predicted_snowfall_in as number,
         errorIn: r.accuracy_error_in as number,
       }));

@@ -23,11 +23,11 @@ links back here for status.
 | 0 | Operational readiness (provisioning, deploy, seed) | 🔲 Not started | **You** — see punch list below |
 | A | Autonomous pipeline (ingest → score → alert) | 🟡 Built, unverified live | You (deploy), then both |
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
-| B | Self-tuning SLR calibration | 🔶 Mechanism built, dormant | Needs Phase 0 + a season of data |
+| B | Self-tuning SLR calibration | 🔶 Mechanism + 2 historical backtest pipelines built | Needs Phase 0, then just `npm run backtest:*` |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 | D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
 
-**Test/build state as of this update**: 118/118 unit tests passing, clean
+**Test/build state as of this update**: 152/152 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -144,21 +144,23 @@ table and a small admin form if/when it's actually wanted.
 
 ## Phase B — Self-tuning SLR calibration loop
 
-**Status: 🔶 mechanism built this session, intentionally dormant.**
-`src/lib/calibration/` (pure update rule in `recommend.ts`, DB orchestrator
-in `generate.ts`, the only-approved-writes-apply path in `apply.ts`),
-`calibration_recommendations` table, weekly cron
-(`/api/cron/calibration-recommend`), admin review UI at `/admin/calibration`.
-8 unit tests in `tests/calibration/`.
+**Status: 🔶 mechanism built, no longer blocked on waiting out a live
+season — only on Phase 0 (deploy, so the backtest scripts have somewhere
+to write and real APIs to call).** `src/lib/calibration/` (pure update
+rule in `recommend.ts`, DB orchestrator in `generate.ts`, the
+only-approved-writes-apply path in `apply.ts`), `calibration_recommendations`
+table, weekly cron (`/api/cron/calibration-recommend`), admin review UI
+at `/admin/calibration`. 8 unit tests in `tests/calibration/`.
 
 **How it works, as built:**
-- Weekly, for each resort with ≥15 `accuracy_log` samples (source=`powder_alert`)
-  in the trailing 120 days, computes the mean signed error and proposes a
-  new `slr_calibration_multiplier` — a simple bounded proportional
-  controller, not a black box: nudge opposite the mean error, scaled to
-  the mean predicted amount, clamped to ±5% per update, and the multiplier
-  itself is hard-bounded to [0.7, 1.4] regardless of how large an error
-  would otherwise imply.
+- Weekly, for each resort with ≥15 pooled `accuracy_log` samples (live
+  `powder_alert` samples in the trailing 120 days, plus — new, see below —
+  samples from either historical backtest pipeline, unwindowed), computes
+  the mean signed error and proposes a new `slr_calibration_multiplier` —
+  a simple bounded proportional controller, not a black box: nudge
+  opposite the mean error, scaled to the mean predicted amount, clamped
+  to ±5% per update, and the multiplier itself is hard-bounded to
+  [0.7, 1.4] regardless of how large an error would otherwise imply.
 - **Recommend-only, as decided**: nothing writes to `resorts.slr_calibration_multiplier`
   automatically. Every proposal lands in `calibration_recommendations` with
   `status='pending'` and sits in `/admin/calibration` until a logged-in
@@ -167,13 +169,56 @@ in `generate.ts`, the only-approved-writes-apply path in `apply.ts`),
 - Skips generating a new recommendation for a resort while one is still
   pending, so they don't pile up unreviewed.
 
-**Why it's dormant and should stay that way for now**: all of this is
-inert without real `accuracy_log` rows, and there are zero right now —
-that table only fills once Phase 0 is done and the backtest cron has run
-against real SNOTEL data for a while. Building the mechanism now (rather
-than waiting) was the right call because it's a pure, independently
-testable piece of logic with no live-service dependency — but *using* it
-needs a season, not a deploy.
+**Why this no longer has to wait out a live season**: the operator asked
+directly whether historical data could pre-train/validate the model ahead
+of a live season. The honest answer worked through in conversation and
+built here: there's no literal "pre-training" since this isn't an ML
+model, but you don't need to already know what was predicted historically
+to generate real calibration signal — run historical weather data through
+the *existing* scoring logic yourself, compare the output to what actually
+happened, and that comparison is exactly the same `accuracy_log` shape the
+live pipeline produces. Two pipelines do this, covering different parts of
+the system and different depths of history (see `lib/backtest/` for full
+header-comment detail on each, including the honest limitations):
+
+- **`lib/backtest/slr-reanalysis.ts`** — validates ONLY the SLR conversion
+  (Kuchera formula) against ERA5 reanalysis data (`archive-api.open-meteo.com`,
+  back to 1940). Reanalysis is retrospective truth, not a forecast made in
+  advance, so it can't exercise multi-model reconciliation — but the SLR
+  formula only needs temperature + precipitation, which reanalysis has in
+  depth no forecast archive comes close to. Run via
+  `npm run backtest:slr-reanalysis -- --years=N`.
+- **`lib/backtest/reconciliation-forecast-archive.ts`** — validates the
+  FULL pipeline (reconciliation + SLR) via the exact same
+  `computeScoreFromInputs` pure function the live cron calls, against
+  real archived model forecasts (`historical-forecast-api.open-meteo.com`),
+  which do preserve genuine forecast uncertainty. Much shallower (~2021+,
+  varies by model; HRRR has no archive coverage at all and is excluded).
+  One real, stated limitation: the archive is a stitched continuous
+  series, not the full original lead-time spectrum, so this approximates
+  a short-lead regime at a documented nominal lead time rather than
+  claiming to validate the T48_120/T120_PLUS weight buckets specifically.
+  Run via `npm run backtest:reconciliation -- --years=N`.
+
+Both write to `accuracy_log` under their own `source` tag
+(`slr_reanalysis_backtest` / `reconciliation_forecast_backtest`, see
+`AccuracyLogSource` in `lib/db/types.ts`) — visible on their own in
+`/admin/backtest`'s "Pre-season historical backtest" section, kept
+separate from the live powder_alert-vs-NWS comparison so backtest numbers
+are never mistaken for live operational ones. `generateCalibrationRecommendations`
+(`lib/calibration/generate.ts`) pools both sources in alongside live data
+— see `CALIBRATION_BACKTEST_SOURCES` in `lib/config/constants.ts` for the
+one acknowledged methodological wrinkle (reanalysis-backtest samples
+measure SLR-only error; live and reconciliation-backtest samples measure
+end-to-end error including reconciliation noise — pooled as a reasonable
+approximation, not a perfectly clean blend, acceptable given Phase B stays
+bounded and human-approved regardless of which source proposed a change).
+
+**What's still genuinely gated on Phase 0**: both backtest scripts need
+live Supabase (somewhere to write) and live network access to Open-Meteo's
+archive hosts and the NRCS AWDB API — none of which exist in this sandbox.
+Nothing left to build here; this is "run the scripts after you deploy,"
+not "build more code."
 
 **What else could self-tune later, not in scope now**:
 `ALERT_POWDER_SCORE_THRESHOLD`, the `POWDER_SCORE_WEIGHTS` split, and
@@ -729,6 +774,44 @@ to re-read the original primer to know what's accounted for.
   surface (hero, badges, map, chart, conditions, table) plus a direct
   `getComputedStyle` check confirming both new fonts actually loaded
   rather than silently falling back. 118 tests unchanged, clean build.
+- **2026-10-13** — Built two historical backtest pipelines for Phase B,
+  after a conversation that started with "is historical data accessible,
+  can we pre-train ahead of the season?" and converged (through a real
+  back-and-forth, not a one-shot answer) on: there's no literal
+  pre-training since this isn't an ML model, but running historical
+  weather data through the *existing* scoring logic and comparing the
+  output to what actually happened produces the exact same `accuracy_log`
+  signal the live pipeline does — you don't need to already know what was
+  historically predicted to generate that. Two pipelines, covering
+  different depths and different parts of the system (see Phase B above
+  for the full writeup, `lib/backtest/*.ts` header comments for complete
+  detail including stated limitations):
+  `lib/backtest/slr-reanalysis.ts` (SLR formula only, ERA5 reanalysis
+  back to 1940) and `lib/backtest/reconciliation-forecast-archive.ts`
+  (full reconciliation + SLR pipeline, archived real model forecasts,
+  ~2021+). Required refactoring `lib/scoring/run.ts` to extract a pure
+  `computeScoreFromInputs` function first, so the backtest runs the
+  *exact same* scoring code the live cron does rather than a
+  reimplementation that could quietly drift from it — a good refactor
+  independent of the backtest work, and it closed a real test-coverage
+  gap (the full pipeline had zero direct tests before this; it does now).
+  Two new operator-run scripts (`npm run backtest:slr-reanalysis`,
+  `npm run backtest:reconciliation`, both accepting `--years=N`
+  `--resort=<slug>`), a new `/admin/backtest` section showing results
+  separately from live accuracy so they're never confused, and
+  `generateCalibrationRecommendations` now pools both backtest sources
+  alongside live data (documented methodological wrinkle: reanalysis
+  samples measure SLR-only error, not end-to-end — acceptable given
+  Phase B stays bounded and human-approved either way). None of the two
+  new Open-Meteo hosts used here (`archive-api.open-meteo.com`,
+  `historical-forecast-api.open-meteo.com`) could be verified against a
+  live response in this sandbox (same WebFetch EGRESS_BLOCKED result as
+  every other Open-Meteo host all session) — built to WebSearch-verified
+  documented convention with the same "one place to fix it" discipline
+  used everywhere else in this codebase for exactly this situation (see
+  `lib/ingestion/open-meteo-historical.ts`'s header for the full
+  verification-status account). 34 new tests (152 total), clean
+  typecheck, clean build.
 
 ---
 
@@ -737,10 +820,13 @@ to re-read the original primer to know what's accounted for.
 Phase 0 (you, this week ideally) → Phase A verification happens naturally
 as Phase 0 completes → Phase C activation once there's enough real signal
 for a dev loop to act on (after initial deploy, not before — say the word
-when you're ready) → Phase B stays dormant through a full season of real
-`accuracy_log` data before you approve your first recommendation → Phase
-B's broader constants (alert threshold, score weights) only after the
-per-resort SLR case has run a full cycle and you're comfortable with it.
-Phase D ran independently of all of this and its first pass is done —
+when you're ready) → Phase B's two backtest scripts can run right after
+Phase 0 (no season wait required anymore — see Phase B above), but still
+treat your first *approval* of a recommendation as a real decision worth
+taking slowly: skim a few resorts' backtest numbers in `/admin/backtest`
+before approving anything, same caution as if it came from live data. →
+Phase B's broader constants (alert threshold, score weights) only after
+the per-resort SLR case has run a full cycle and you're comfortable with
+it. Phase D ran independently of all of this and its first pass is done —
 a decided product name is the only real blocker left for a final
 polish pass (swapping "powder-alert" for the real name/logo).
