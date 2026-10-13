@@ -5,8 +5,14 @@
  * tests/scoring/reconciliation.test.ts).
  */
 
-import { MODEL_DISAGREEMENT_THRESHOLD, MODEL_WEIGHTS_BY_BUCKET, leadTimeBucketFor } from "@/lib/config/constants";
+import { MODEL_DISAGREEMENT_THRESHOLD, MODEL_WEIGHTS_BY_BUCKET, leadTimeBucketFor, type LeadTimeBucket } from "@/lib/config/constants";
 import type { ModelName } from "@/lib/db/types";
+
+/** Optional override for the two config values this function reads — see lib/scoring/config.ts (ROADMAP Phase C, model versioning). Omitted entirely = exact prior behavior, so every existing caller/test is unaffected. */
+export interface ReconciliationConfigOverride {
+  weightsByBucket?: Record<LeadTimeBucket, Partial<Record<ModelName, number>>>;
+  disagreementThreshold?: number;
+}
 
 export interface ReconciliationResult {
   reconciledValue: number;
@@ -25,10 +31,11 @@ export interface ReconciliationResult {
  */
 export function reconcileModels(
   modelValues: Partial<Record<ModelName, number>>,
-  leadTimeHours: number
+  leadTimeHours: number,
+  configOverride?: ReconciliationConfigOverride
 ): ReconciliationResult {
   const bucket = leadTimeBucketFor(leadTimeHours);
-  const weightTable = MODEL_WEIGHTS_BY_BUCKET[bucket];
+  const weightTable = (configOverride?.weightsByBucket ?? MODEL_WEIGHTS_BY_BUCKET)[bucket];
 
   const present = (Object.entries(modelValues) as Array<[ModelName, number]>).filter(
     ([model, value]) => weightTable[model] != null && Number.isFinite(value)
@@ -52,7 +59,7 @@ export function reconcileModels(
   // Guard divide-by-zero: with mean 0, only flag disagreement if models
   // genuinely differ (an epsilon guards float noise around exact zero).
   const relativeSpread = mean > 1e-6 ? (max - min) / mean : max - min > 1e-6 ? Infinity : 0;
-  const disagreementFlag = relativeSpread > MODEL_DISAGREEMENT_THRESHOLD;
+  const disagreementFlag = relativeSpread > (configOverride?.disagreementThreshold ?? MODEL_DISAGREEMENT_THRESHOLD);
 
   // model_agreement_score: 1.0 = perfect agreement, decays linearly to 0 at
   // 100% relative spread. Engineering default, tunable post-backtest — not

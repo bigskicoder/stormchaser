@@ -2,6 +2,7 @@ const STATUS_TIER: Record<string, "high" | "medium" | "low" | "danger"> = {
   sent: "high",
   posted: "high",
   approved: "high",
+  active: "high",
   pending: "medium",
   publishing: "medium",
   draft: "medium",
@@ -9,6 +10,7 @@ const STATUS_TIER: Record<string, "high" | "medium" | "low" | "danger"> = {
   skipped_rate_limited: "low",
   "not started": "low",
   rejected: "low",
+  archived: "low",
 };
 
 /** Generic status pill for admin tables (delivery_status, social_posts.status, etc) — reuses the same badge CSS as ConfidenceBadge, mapped to an appropriate tier per known status string. Unknown statuses fall back to the neutral "low" tier rather than guessing. */

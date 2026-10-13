@@ -29,6 +29,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <Link href="/admin">Dashboard</Link>
         <Link href="/admin/backtest">Forecast accuracy</Link>
         <Link href="/admin/calibration">SLR calibration</Link>
+        <Link href="/admin/model-versions">Model versions</Link>
       </nav>
       <div style={{ paddingTop: 24 }}>{children}</div>
     </div>

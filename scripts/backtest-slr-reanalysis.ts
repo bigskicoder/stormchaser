@@ -12,6 +12,14 @@
  * Usage:
  *   npm run backtest:slr-reanalysis -- --years=10
  *   npm run backtest:slr-reanalysis -- --years=20 --resort=alta
+ *   npm run backtest:slr-reanalysis -- --years=10 --version=<model_versions.id>
+ *
+ * Without --version, runs under whichever model_versions row is currently
+ * active (same config live scoring uses) — or the compiled-in defaults if
+ * none exists yet. With --version=<id>, runs under that specific version
+ * instead (typically a draft, to see how it would have scored history
+ * before activating it live) — see lib/model-versions/compare.ts for how
+ * the admin dashboard then compares the resulting accuracy_log rows.
  *
  * Requires NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in the env,
  * plus live network access to archive-api.open-meteo.com and the NRCS AWDB
@@ -24,20 +32,25 @@
 
 import { getServiceDb } from "../src/lib/db/client";
 import { runSlrReanalysisBacktestForResort } from "../src/lib/backtest/slr-reanalysis";
-import type { Resort } from "../src/lib/db/types";
+import { getActiveScoringConfig, getModelVersionById } from "../src/lib/model-versions/resolve";
+import { toScoringConfig } from "../src/lib/scoring/config";
+import type { Resort, SlrStrategyName } from "../src/lib/db/types";
 
 const DEFAULT_YEARS_BACK = 10;
 
-function parseArgs(argv: string[]): { years: number; resortSlug: string | null } {
+function parseArgs(argv: string[]): { years: number; resortSlug: string | null; versionId: string | null } {
   let years = DEFAULT_YEARS_BACK;
   let resortSlug: string | null = null;
+  let versionId: string | null = null;
   for (const arg of argv) {
     const yearsMatch = arg.match(/^--years=(\d+)$/);
     if (yearsMatch) years = Number(yearsMatch[1]);
     const resortMatch = arg.match(/^--resort=(.+)$/);
     if (resortMatch) resortSlug = resortMatch[1]!;
+    const versionMatch = arg.match(/^--version=(.+)$/);
+    if (versionMatch) versionId = versionMatch[1]!;
   }
-  return { years, resortSlug };
+  return { years, resortSlug, versionId };
 }
 
 function isoDateDaysAgo(days: number): string {
@@ -45,7 +58,7 @@ function isoDateDaysAgo(days: number): string {
 }
 
 async function main() {
-  const { years, resortSlug } = parseArgs(process.argv.slice(2));
+  const { years, resortSlug, versionId } = parseArgs(process.argv.slice(2));
   // ERA5 reanalysis has a reporting lag of roughly a week — ending the
   // range a few days back avoids requesting dates the archive doesn't
   // have yet (which would just come back empty for those last days, not
@@ -65,6 +78,36 @@ async function main() {
     return;
   }
 
+  // resortMultipliers stays null when running under the live/active config
+  // (computeSlrBacktestDay's own default already uses each resort's live
+  // slr_calibration_multiplier). Only set when --version pins a specific
+  // draft/archived row, so its snapshot — not today's live value — is what
+  // gets backtested.
+  let resortMultipliers: Record<string, number> | null = null;
+  let resolvedVersionId: string | null;
+  let slrStrategyName: SlrStrategyName | undefined;
+
+  if (versionId) {
+    const version = await getModelVersionById(versionId);
+    if (!version) {
+      console.error(`No model version found with id "${versionId}".`);
+      process.exit(1);
+    }
+    resolvedVersionId = version.id;
+    slrStrategyName = toScoringConfig(version).slrStrategyName;
+    resortMultipliers = version.resort_slr_multipliers;
+    console.log(`Running under model version "${version.name}" (${version.id}, status=${version.status}).`);
+  } else {
+    const active = await getActiveScoringConfig();
+    resolvedVersionId = active.versionId;
+    slrStrategyName = active.config.slrStrategyName;
+    console.log(
+      resolvedVersionId
+        ? `Running under the currently active model version (${resolvedVersionId}).`
+        : "No active model version yet — running under compiled-in defaults (run seed:resorts to create a baseline)."
+    );
+  }
+
   console.log(`Running SLR reanalysis backtest for ${resorts.length} resort(s), ${startDate} to ${endDate} (~${years} years)...`);
 
   let totalCompared = 0;
@@ -72,7 +115,11 @@ async function main() {
   const failures: string[] = [];
 
   for (const resort of resorts) {
-    const summary = await runSlrReanalysisBacktestForResort(resort, startDate, endDate);
+    const summary = await runSlrReanalysisBacktestForResort(resort, startDate, endDate, {
+      slrStrategyName,
+      calibrationMultiplier: resortMultipliers?.[resort.id],
+      modelVersionId: resolvedVersionId,
+    });
     totalCompared += summary.daysCompared;
     totalSkipped += summary.daysSkipped;
     if (summary.error) {

@@ -24,10 +24,11 @@ links back here for status.
 | A | Autonomous pipeline (ingest → score → alert) | 🟡 Built, unverified live | You (deploy), then both |
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
 | B | Self-tuning SLR calibration | 🔶 Mechanism + 2 historical backtest pipelines built | Needs Phase 0, then just `npm run backtest:*` |
+| B.1 | Model versioning (save/compare/roll back) | ✅ Built | Done — `/admin/model-versions` |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 | D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
 
-**Test/build state as of this update**: 152/152 unit tests passing, clean
+**Test/build state as of this update**: 163/163 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -46,9 +47,9 @@ done without you. Ordered by what actually blocks what.
 1. **Create a Supabase project** (free tier is fine at this scale) → copy its URL, anon key, and service-role key.
 2. **Create a Vercel project on the Pro plan** ($20/mo) → import `bigskicoder/stormchaser`, branch `claude/autonomous-coding-5hk5wt`. **Not optional**: confirmed via WebSearch that Hobby caps at 2 active cron jobs, once-per-day each — this project's `vercel.json` has 10 jobs at hourly/6h/daily/weekly cadence and simply won't deploy as designed on Hobby.
 3. **Set env vars in Vercel**: at minimum `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and a random string for `CRON_SECRET` (Vercel sends this back automatically on its own cron calls once it's set — see `.env.example` for the full list).
-4. **Run the 6 migrations** (`supabase/migrations/0001` through `0006`) against that Supabase project — SQL editor or `supabase db push`.
+4. **Run the 8 migrations** (`supabase/migrations/0001` through `0008`) against that Supabase project — SQL editor or `supabase db push`.
 5. **Deploy** — confirm the build goes green on Vercel with real secrets (you can deploy before step 4 to sanity-check the build itself, but the app won't do anything useful until the schema exists).
-6. **Run `npm run seed:resorts`** against the real project. This is the first live contact with Open-Meteo's elevation API, NRCS's station list, and NWS's `/points` endpoint — review the console output for any resort flagged with an elevation discrepancy >150m before trusting its scores.
+6. **Run `npm run seed:resorts`** against the real project. This is the first live contact with Open-Meteo's elevation API, NRCS's station list, and NWS's `/points` endpoint — review the console output for any resort flagged with an elevation discrepancy >150m before trusting its scores. It also seeds and activates a baseline `model_versions` row ("v1 — baseline") the first time it runs — see Phase B.1 — so live scoring and backtests have a real version to tag their output with from day one.
 
 ### Tier 2 — needed before the pipeline actually notifies anyone or admin auth works
 7. **Clerk app** (free tier) → publishable + secret key. Sign in once yourself to get your Clerk user ID → set `ADMIN_USER_IDS`.
@@ -230,6 +231,155 @@ recommend-only and you're comfortable with how it behaves. Graduating
 individual resorts from recommend-only to auto-apply (with a visible log)
 is a future decision, not a default — nothing in this codebase does that
 today.
+
+---
+
+## Phase B.1 — Model versioning (save, compare, roll back)
+
+**Status: ✅ built.** `supabase/migrations/0007_model_versions.sql` +
+`0008_accuracy_log_version_key.sql`, `lib/scoring/config.ts`,
+`lib/model-versions/{resolve,create,activate,compare}.ts`,
+`/admin/model-versions`, `/api/admin/model-versions*`. 11 new unit tests
+(config-override paths on `reconcileModels`/`scoreEnsembleConfidence`/
+`computePowderScore`, the `scoringConfig`/`modelVersionId` passthrough on
+`computeScoreFromInputs`, and `lib/scoring/config.ts`'s round-trip).
+
+Requested directly, after Phase B's calibration mechanism was already
+live: *"include a dashboard with admin controls so it's not fully
+automated — human input and rollback options as well as comparison
+between model states — make the website 'save' previous model versions
+which can be run and viewed from the admin dashboard."* Before this, the
+scoring engine's tunable parameters (multi-model reconciliation weights,
+SLR strategy choice, powder-score weights, confidence thresholds) were
+hardcoded constants, and approving a calibration recommendation silently
+overwrote `resorts.slr_calibration_multiplier` with nothing to undo it
+with. Both are now versioned.
+
+**What a "model version" is, precisely**: a named, timestamped,
+DB-stored snapshot of `lib/scoring/config.ts`'s `ScoringConfig` shape
+(model weights by lead-time bucket, model-disagreement threshold,
+ensemble-confidence thresholds + spread-normalization ceiling, SLR
+strategy name, powder-score weights, confidence weight by label,
+actionable window, lead-time-fit decay) plus a `resort_id ->
+slr_calibration_multiplier` snapshot. Deliberately **not** included:
+Kuchera's own internal physics constants (threshold temperature, slopes)
+— those stay fixed, literature-grounded code, not an admin-tunable
+business parameter. Exactly one version has `status='active'` at a time
+(DB-enforced via a partial unique index), which is what live scoring and
+the backtest scripts read by default.
+
+**How it was built to not break anything already working**: every pure
+scoring function that previously read a hardcoded constant
+(`reconcileModels`, `scoreEnsembleConfidence`, `computeLeadTimeFit`,
+`computePowderScore`) now takes an *optional* config-override parameter
+that defaults to the existing compiled-in constants when omitted. Every
+one of the ~150 pre-existing tests that didn't pass this parameter kept
+passing unchanged — this was additive, not a rewrite. `computeScoreFromInputs`
+(the pure function both live scoring and both backtest pipelines already
+shared, from an earlier refactor) now resolves `inputs.scoringConfig ??
+DEFAULT_SCORING_CONFIG` once and threads the relevant piece into each
+downstream call, and echoes `modelVersionId` straight onto its result as
+pure bookkeeping — not read by the computation, just carried along so
+callers can persist which version produced a given score without a
+second round trip.
+
+**`lib/model-versions/`** — the service layer:
+- `resolve.ts` (read-only): `getActiveModelVersion`, `getModelVersionById`,
+  `listModelVersions`, and `getActiveScoringConfig()` — what
+  `lib/scoring/run.ts` calls on every live scoring run, falling back to
+  `DEFAULT_SCORING_CONFIG` with `versionId: null` if no version has ever
+  been activated yet (a fresh deploy before `seed:resorts` has run) —
+  live scoring never breaks for lack of a DB row.
+- `create.ts`: `createModelVersion` (always a draft unless told
+  otherwise) and `createBaselineVersionIfNoneExists()` — idempotent,
+  seeds+activates "v1 — baseline" from the hardcoded defaults and every
+  resort's current SLR multiplier the first time anything calls it.
+  Wired into `scripts/seed-resorts.ts`, and called defensively again
+  wherever something needs to branch off "the current version" (calibration
+  approval, the create-draft API route) so none of those paths can ever
+  throw on a brand-new deploy for lack of a baseline.
+- `activate.ts`: the **one** function that changes what live scoring
+  actually does. Archives whichever version is currently active (if any),
+  activates the target, and writes its `resort_slr_multipliers` snapshot
+  back onto the live `resorts` table. Deliberately **the same code path
+  for both promoting a draft and rolling back** — "activate an older
+  version" *is* the rollback, there's no separate undo operation to get
+  wrong. Not wrapped in a DB transaction (consistent with the rest of
+  this codebase, which doesn't use them anywhere) — there's a brief
+  window with zero active versions between the archive-old and
+  activate-new writes, made harmless by `getActiveScoringConfig`'s
+  default-config fallback if a scoring run ever landed exactly inside it.
+- `compare.ts`: `compareModelVersions(versionIds[])` — a **read-only
+  aggregation** over `accuracy_log` rows already tagged with
+  `model_version_id` by live scoring or a backtest run. Not a live
+  re-run. A version with zero samples just means it's never been active
+  or backtested under — the UI says so rather than showing a misleading
+  zero.
+
+**Calibration approval now creates a rollback point instead of a silent
+overwrite** (`lib/calibration/apply.ts`): approving a recommendation
+still takes effect immediately, same one-click UX as before — but it now
+creates a new `model_versions` row (parent = whichever version was active,
+global config unchanged, just this one resort's multiplier updated) and
+activates it, instead of writing directly to `resorts.slr_calibration_multiplier`
+with nothing to undo. "Undo this calibration change" is now just
+activating the parent version again from `/admin/model-versions`.
+
+**Backtesting a draft before activating it live** — the actual mechanism
+behind "comparison between model states": both
+`npm run backtest:slr-reanalysis` and `npm run backtest:reconciliation`
+now accept `--version=<model_versions.id>`. Without it, they run under
+whichever version is currently active (same as live scoring); with it,
+they run a historical backtest *as if that draft were already live*,
+tagging every `accuracy_log` row they write with that version's id — so
+its accuracy stats show up in the comparison view without ever having
+touched production scoring. (This needed a schema change too — migration
+`0008` widens `accuracy_log`'s uniqueness to include `model_version_id`,
+since the old 4-column key would have let a second version's backtest
+silently overwrite the first's rows for the same resort/date instead of
+producing a second, comparable one.)
+
+**`/admin/model-versions`**: lists every version with status (draft/
+active/archived), lineage (parent), SLR strategy, and who created it.
+One button does double duty as "Activate" (draft → live) and "Roll back"
+(archived → live again) — same endpoint, same confirmation-free
+single click, matching `activateModelVersion`'s own "one code path"
+design. "Duplicate" branches a new draft off any existing row (not just
+the active one). The new-draft form clones the source version's config
+as pretty-printed JSON into a textarea rather than ~20 individual numeric
+inputs for every nested weight/threshold — a deliberate scope call for
+what's an admin-only internal tool: the API route validates the shape
+with `zod` before anything is persisted, so a malformed edit is rejected
+server-side, not silently accepted. Comparison is checkbox-select across
+the list, submitted as a plain GET form (`?compare=id1&compare=id2`,
+bookmarkable, no client JS required) rendering `compareModelVersions`'s
+output — sample count, MAE, hit rate — per selected version.
+
+**Verified**: a temporary `/preview-model-versions` fixture route (fixture
+`ModelVersion` rows covering draft/active/archived and a 3-generation
+parent chain, no DB/Clerk) rendered the real components, screenshotted via
+`playwright-core` at desktop and mobile widths — list view, the create-
+draft form open, and the compare view with a zero-sample draft rendering
+`—` instead of a misleading `0%`. Found and fixed two small polish issues
+this way (the "running now" status pill and the "Roll back" button both
+wrapped awkwardly onto two lines in the Action column — fixed with
+`white-space: nowrap` and a shorter button label). Also clicked the real
+Activate button against the real (unconfigured, no live Clerk) API route
+to confirm the request actually round-trips and the client component
+renders the resulting 403 inline, not just that the static layout looks
+right. Removed before commit, same as every other preview route this
+project has used.
+
+**What this deliberately doesn't do**: no scheduled or automatic
+activation anywhere — every activation is an explicit admin click, which
+is the literal "not fully automated" requirement. No side-by-side raw-
+config diff between two versions (the comparison view is accuracy stats,
+not a config diff) — a reasonable follow-up if it's ever wanted, flagged
+here rather than silently missing. No way to edit per-resort SLR
+multipliers from the new-draft form — that stays governed by the
+calibration-recommendation flow specifically, so there's exactly one
+place a resort's multiplier can change, not two paths that could
+disagree.
 
 ---
 
@@ -812,6 +962,36 @@ to re-read the original primer to know what's accounted for.
   `lib/ingestion/open-meteo-historical.ts`'s header for the full
   verification-status account). 34 new tests (152 total), clean
   typecheck, clean build.
+- **2026-10-13** — Built model versioning (Phase B.1), requested directly
+  after Phase B shipped: *"include a dashboard with admin controls so
+  it's not fully automated — human input and rollback options as well as
+  comparison between model states — make the website 'save' previous
+  model versions which can be run and viewed from the admin dashboard."*
+  Made every scoring pure function's tunable constants accept an optional
+  config override (defaulting to the existing hardcoded values — additive,
+  zero breaking changes to the ~150 tests already exercising the default
+  path), added a `model_versions` table (migration `0007`) with exactly
+  one `active` row enforced by a partial unique index, and a service layer
+  (`lib/model-versions/`) to resolve/create/activate/compare them. Wired
+  the active version into live scoring (`lib/scoring/run.ts`), added
+  `--version=<id>` to both historical backtest scripts so a draft can be
+  evaluated *before* activating it (required widening `accuracy_log`'s
+  uniqueness to include `model_version_id` — migration `0008` — so two
+  versions' backtests over the same resort/date don't collide), and
+  changed calibration approval to create+activate a new version (parent =
+  previous active) instead of silently overwriting
+  `resorts.slr_calibration_multiplier` with nothing to undo. Built
+  `/admin/model-versions`: list with status/lineage, one button serving
+  both "activate a draft" and "roll back to an older version" (same code
+  path, deliberately), a JSON-textarea draft-creation form (documented
+  scope call for an admin-only tool), and a GET-param-driven comparison
+  view needing no client JS. Verified via a temporary
+  `/preview-model-versions` fixture route and `playwright-core`
+  screenshots at desktop/mobile widths — found and fixed two small text-
+  wrapping issues, and confirmed the Activate button's error path
+  end-to-end against the real (unconfigured) API route, not just the
+  static layout. Removed before commit. 11 new tests (163 total), clean
+  typecheck, clean build.
 
 ---
 
@@ -825,8 +1005,15 @@ Phase 0 (no season wait required anymore — see Phase B above), but still
 treat your first *approval* of a recommendation as a real decision worth
 taking slowly: skim a few resorts' backtest numbers in `/admin/backtest`
 before approving anything, same caution as if it came from live data. →
-Phase B's broader constants (alert threshold, score weights) only after
-the per-resort SLR case has run a full cycle and you're comfortable with
-it. Phase D ran independently of all of this and its first pass is done —
-a decided product name is the only real blocker left for a final
-polish pass (swapping "powder-alert" for the real name/logo).
+Phase B.1 is already built and needs nothing further from you — every
+calibration approval now creates its own rollback point automatically;
+`/admin/model-versions` is just there for when you want to look at
+lineage, compare a draft's backtest numbers before activating it, or roll
+back. → Phase B's broader constants (alert threshold, score weights) only
+after the per-resort SLR case has run a full cycle and you're comfortable
+with it — if you do eventually want to tune one of those, do it as a
+draft model version first and backtest under it before activating, same
+discipline as everything else in Phase B. Phase D ran independently of
+all of this and its first pass is done — a decided product name is the
+only real blocker left for a final polish pass (swapping "powder-alert"
+for the real name/logo).

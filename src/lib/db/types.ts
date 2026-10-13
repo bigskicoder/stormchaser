@@ -104,6 +104,8 @@ export interface SnowScore {
   avg_cloud_cover_pct: number | null;
   /** Generic lift-industry wind-hold estimate, NOT resort-specific — see lib/scoring/wind-hold.ts. */
   wind_hold_probability: number | null;
+  /** Which model_versions row's config computed this score — null for rows predating model versioning (falls back to hardcoded defaults either way). */
+  model_version_id: string | null;
   created_at: string;
 }
 
@@ -180,6 +182,8 @@ export interface AccuracyLogRow {
   accuracy_error_in: number | null;
   lead_time_hours_at_prediction: number;
   source: AccuracyLogSource;
+  /** Which model_versions row was active/under-test when this row was computed — lets the comparison view aggregate real historical results by version without re-running anything. */
+  model_version_id: string | null;
   logged_at: string;
 }
 
@@ -208,6 +212,46 @@ export interface CalibrationRecommendation {
   status: "pending" | "approved" | "rejected";
   reviewed_by: string | null;
   reviewed_at: string | null;
+  created_at: string;
+}
+
+export type ModelVersionStatus = "draft" | "active" | "archived";
+
+/**
+ * A named, timestamped snapshot of the scoring engine's tunable
+ * configuration — requested directly ("save previous model versions which
+ * can be run and viewed," with comparison and rollback). JSONB fields are
+ * typed loosely here (this is the raw DB row); lib/scoring/config.ts's
+ * toScoringConfig() narrows a row into the strict ScoringConfig shape the
+ * scoring engine actually consumes — see that file for why the split (avoids
+ * a circular import between this file and lib/config/constants.ts, which
+ * already imports ModelName from here).
+ *
+ * Deliberately NOT included: Kuchera's own internal physics constants
+ * (threshold temperature, slopes) — those stay fixed, literature-grounded
+ * code (see slr/kuchera.ts), not an admin-tunable business parameter.
+ */
+export interface ModelVersion {
+  id: string;
+  name: string;
+  description: string | null;
+  status: ModelVersionStatus;
+  model_weights_by_bucket: Record<string, Record<string, number>>;
+  model_disagreement_threshold: number;
+  ensemble_confidence_thresholds: { HIGH_MIN: number; MEDIUM_MIN: number };
+  ensemble_spread_normalization_ceiling_mm: number;
+  slr_strategy_name: SlrStrategyName;
+  powder_score_weights: { SNOWFALL: number; CONFIDENCE: number; LEAD_TIME_FIT: number };
+  confidence_weight_by_label: { high: number; medium: number; low: number };
+  actionable_window_hours: { min: number; max: number };
+  lead_time_fit_decay_per_hour: number;
+  /** resort_id -> slr_calibration_multiplier, snapshotted at save time. Not the live read path — see this interface's own doc comment. */
+  resort_slr_multipliers: Record<string, number>;
+  parent_version_id: string | null;
+  created_by: string;
+  /** Who activated the CURRENT activation — distinct from created_by. See the migration's own comment on why this isn't a full activation history. */
+  activated_by: string | null;
+  activated_at: string | null;
   created_at: string;
 }
 

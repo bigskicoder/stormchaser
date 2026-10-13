@@ -21,6 +21,17 @@ describe("computeLeadTimeFit", () => {
   it("floors at 0 for very long lead times", () => {
     expect(computeLeadTimeFit(1000)).toBe(0);
   });
+
+  it("uses an overridden actionable window and decay rate instead of the compiled-in defaults", () => {
+    // Default window [24,96] would NOT give 1.0 at 10h...
+    expect(computeLeadTimeFit(10)).not.toBe(1);
+    // ...but an overridden window that includes 10h does.
+    expect(computeLeadTimeFit(10, { actionableWindowHours: { min: 0, max: 20 } })).toBe(1);
+    // A steeper overridden decay rate drops off faster than the default.
+    const defaultDecay = computeLeadTimeFit(10);
+    const steeperDecay = computeLeadTimeFit(10, { decayPerHour: 0.1 });
+    expect(steeperDecay).toBeLessThan(defaultDecay);
+  });
 });
 
 describe("computeNormalizedSnowfall", () => {
@@ -55,5 +66,18 @@ describe("computePowderScore", () => {
     expect(max).toBeLessThanOrEqual(1);
     const min = computePowderScore({ normalizedSnowfall: 0, confidenceLabel: "low", leadTimeFit: 0 });
     expect(min).toBeGreaterThanOrEqual(0);
+  });
+
+  it("uses overridden weights and confidence-weight-by-label instead of the compiled-in defaults", () => {
+    const input = { normalizedSnowfall: 1, confidenceLabel: "low" as const, leadTimeFit: 0 };
+    const defaultScore = computePowderScore(input);
+    // Overridden weights put everything on snowfall, and overridden
+    // confidence weights make "low" worth as much as "high" normally is.
+    const overriddenScore = computePowderScore(input, {
+      weights: { SNOWFALL: 1, CONFIDENCE: 0, LEAD_TIME_FIT: 0 },
+      confidenceWeightByLabel: { high: 1.0, medium: 1.0, low: 1.0 },
+    });
+    expect(overriddenScore).toBe(1);
+    expect(overriddenScore).toBeGreaterThan(defaultScore);
   });
 });

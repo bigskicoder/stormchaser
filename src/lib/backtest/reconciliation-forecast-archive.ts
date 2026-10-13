@@ -49,6 +49,7 @@ import {
 } from "@/lib/ingestion/open-meteo-historical";
 import { backfillSnotelActualsForResort } from "@/lib/ingestion/snotel";
 import { computeScoreFromInputs } from "@/lib/scoring/run";
+import type { ScoringConfig } from "@/lib/scoring/config";
 import type { ForecastPull, ModelName, Resort } from "@/lib/db/types";
 import { utcInstantToLocalDateIso } from "@/lib/utils/timezone";
 
@@ -132,10 +133,25 @@ export interface ReconciliationBacktestSummary {
   error?: string;
 }
 
+/**
+ * Same purpose as SlrReanalysisBacktestOverrides (see that interface's
+ * comment) but for the full-pipeline backtest: scoringConfig flows straight
+ * into computeScoreFromInputs — the exact function live scoring calls — so
+ * backtesting under a draft model version exercises its reconciliation
+ * weights, confidence thresholds, SLR strategy, and powder-score weights
+ * all at once, not just the SLR step.
+ */
+export interface ReconciliationBacktestOverrides {
+  scoringConfig?: ScoringConfig;
+  calibrationMultiplier?: number;
+  modelVersionId?: string | null;
+}
+
 export async function runReconciliationBacktestForResort(
   resort: Resort,
   startDate: string,
-  endDate: string
+  endDate: string,
+  overrides: ReconciliationBacktestOverrides = {}
 ): Promise<ReconciliationBacktestSummary> {
   if (!resort.snotel_station_triplet) {
     return { resortSlug: resort.slug, daysCompared: 0, daysSkipped: 0, modelErrors: [], error: "no SNOTEL station resolved for this resort" };
@@ -198,8 +214,10 @@ export async function runReconciliationBacktestForResort(
         leadTimeHours: RECONCILIATION_BACKTEST_NOMINAL_LEAD_TIME_HOURS,
         modelRuns,
         ensembleMemberTotals: [],
-        slrCalibrationMultiplier: resort.slr_calibration_multiplier,
+        slrCalibrationMultiplier: overrides.calibrationMultiplier ?? resort.slr_calibration_multiplier,
         seasonalMaxSnowfallIn: SEASONAL_MAX_BOOTSTRAP_DEFAULT_IN,
+        scoringConfig: overrides.scoringConfig,
+        modelVersionId: overrides.modelVersionId,
       });
       if (!score) {
         daysSkipped += 1;
@@ -216,8 +234,9 @@ export async function runReconciliationBacktestForResort(
           accuracy_error_in: score.estimatedSnowfallIn - observedSnowfallIn,
           lead_time_hours_at_prediction: RECONCILIATION_BACKTEST_NOMINAL_LEAD_TIME_HOURS,
           source: "reconciliation_forecast_backtest",
+          model_version_id: score.modelVersionId,
         },
-        { onConflict: "resort_id,target_date,lead_time_hours_at_prediction,source" }
+        { onConflict: "resort_id,target_date,lead_time_hours_at_prediction,source,model_version_id" }
       );
       if (upsertError) throw upsertError;
       daysCompared += 1;

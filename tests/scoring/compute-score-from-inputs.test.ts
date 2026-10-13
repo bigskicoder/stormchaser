@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeScoreFromInputs } from "@/lib/scoring/run";
+import { DEFAULT_SCORING_CONFIG } from "@/lib/scoring/config";
 import type { ForecastPull } from "@/lib/db/types";
 
 function row(overrides: Partial<ForecastPull>): ForecastPull {
@@ -133,6 +134,61 @@ describe("computeScoreFromInputs", () => {
     expect(result.maxWindGustKmh).toBeCloseTo(20, 5);
     expect(result.avgCloudCoverPct).toBeCloseTo(80, 5);
     expect(result.windHoldProbability).not.toBeNull();
+  });
+
+  it("defaults modelVersionId to null when the input is omitted (pre-versioning / DEFAULT_SCORING_CONFIG fallback)", () => {
+    const result = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: coldDayRows("hrrr") },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+    })!;
+    expect(result.modelVersionId).toBeNull();
+  });
+
+  it("echoes modelVersionId straight onto the result — pure bookkeeping, not read by the computation", () => {
+    const result = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: coldDayRows("hrrr") },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+      modelVersionId: "version-abc",
+    })!;
+    expect(result.modelVersionId).toBe("version-abc");
+  });
+
+  it("uses an explicit scoringConfig override instead of the compiled-in defaults", () => {
+    const withDefaultStrategy = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: coldDayRows("hrrr") },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+    })!;
+    const withFixedRatio = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: coldDayRows("hrrr") },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+      scoringConfig: { ...DEFAULT_SCORING_CONFIG, slrStrategyName: "fixed-ratio" },
+    })!;
+    expect(withDefaultStrategy.slrStrategy).toBe("kuchera");
+    expect(withFixedRatio.slrStrategy).toBe("fixed-ratio");
+    // Different SLR strategies produce different ratios for the same cold
+    // storm, so this isn't a no-op override — the config actually flows
+    // through to the computation, not just the label.
+    expect(withFixedRatio.estimatedSnowfallIn).not.toBeCloseTo(withDefaultStrategy.estimatedSnowfallIn, 2);
   });
 
   it("treats an empty ensemble as having no meaningful spread signal, without throwing", () => {

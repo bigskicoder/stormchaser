@@ -8,6 +8,12 @@
 import { ENSEMBLE_CONFIDENCE_THRESHOLDS, ENSEMBLE_SPREAD_NORMALIZATION_CEILING_MM } from "@/lib/config/constants";
 import type { ConfidenceLabel } from "@/lib/db/types";
 
+/** Optional override — see ReconciliationConfigOverride's doc comment; same backward-compatibility guarantee. */
+export interface EnsembleConfidenceConfigOverride {
+  thresholds?: { HIGH_MIN: number; MEDIUM_MIN: number };
+  spreadNormalizationCeilingMm?: number;
+}
+
 export interface EnsembleConfidenceResult {
   ensembleSpreadScore: number;
   confidenceLabel: ConfidenceLabel;
@@ -21,9 +27,9 @@ function stdDev(values: number[]): number {
   return Math.sqrt(variance);
 }
 
-function labelForSpreadScore(spreadScore: number): ConfidenceLabel {
-  if (spreadScore > ENSEMBLE_CONFIDENCE_THRESHOLDS.HIGH_MIN) return "high";
-  if (spreadScore >= ENSEMBLE_CONFIDENCE_THRESHOLDS.MEDIUM_MIN) return "medium";
+function labelForSpreadScore(spreadScore: number, thresholds: { HIGH_MIN: number; MEDIUM_MIN: number }): ConfidenceLabel {
+  if (spreadScore > thresholds.HIGH_MIN) return "high";
+  if (spreadScore >= thresholds.MEDIUM_MIN) return "medium";
   return "low";
 }
 
@@ -41,13 +47,15 @@ function downgrade(label: ConfidenceLabel): ConfidenceLabel {
  */
 export function scoreEnsembleConfidence(
   memberValues: number[],
-  disagreementFlag: boolean
+  disagreementFlag: boolean,
+  configOverride?: EnsembleConfidenceConfigOverride
 ): EnsembleConfidenceResult {
   const sd = stdDev(memberValues);
-  const tightnessRaw = 1 - sd / ENSEMBLE_SPREAD_NORMALIZATION_CEILING_MM;
+  const ceilingMm = configOverride?.spreadNormalizationCeilingMm ?? ENSEMBLE_SPREAD_NORMALIZATION_CEILING_MM;
+  const tightnessRaw = 1 - sd / ceilingMm;
   const ensembleSpreadScore = Math.max(0, Math.min(1, tightnessRaw));
 
-  const rawLabel = labelForSpreadScore(ensembleSpreadScore);
+  const rawLabel = labelForSpreadScore(ensembleSpreadScore, configOverride?.thresholds ?? ENSEMBLE_CONFIDENCE_THRESHOLDS);
   const confidenceLabel = disagreementFlag ? downgrade(rawLabel) : rawLabel;
 
   return {

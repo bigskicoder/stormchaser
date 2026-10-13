@@ -23,7 +23,7 @@ import { DEFAULT_SLR_STRATEGY } from "@/lib/config/constants";
 import { getSlrStrategy } from "@/lib/scoring/slr";
 import { backfillSnotelActualsForResort } from "@/lib/ingestion/snotel";
 import { fetchHistoricalWeather, type HistoricalWeatherResponse } from "@/lib/ingestion/open-meteo-historical";
-import type { Resort } from "@/lib/db/types";
+import type { Resort, SlrStrategyName } from "@/lib/db/types";
 import { utcInstantToLocalDateIso } from "@/lib/utils/timezone";
 
 export interface DailyReanalysisBucket {
@@ -124,6 +124,22 @@ export interface SlrReanalysisBacktestSummary {
 }
 
 /**
+ * Lets an operator backtest under a specific model_versions row (e.g. a
+ * draft that hasn't been activated yet) instead of this resort's live
+ * `slr_calibration_multiplier` + the compiled-in DEFAULT_SLR_STRATEGY — see
+ * scripts/backtest-slr-reanalysis.ts's --version flag and
+ * lib/model-versions/compare.ts's header on why "run a backtest under this
+ * version first" is the intended workflow for comparing draft versions
+ * before activating one. modelVersionId is pure bookkeeping, tagged onto
+ * the accuracy_log rows this writes so compareModelVersions can find them.
+ */
+export interface SlrReanalysisBacktestOverrides {
+  slrStrategyName?: SlrStrategyName;
+  calibrationMultiplier?: number;
+  modelVersionId?: string | null;
+}
+
+/**
  * Runs the reanalysis SLR backtest for one resort over [startDate, endDate],
  * writing one accuracy_log row per day that has both a reanalysis reading
  * and SNOTEL ground truth. Ensures SNOTEL coverage for the range first
@@ -134,7 +150,8 @@ export interface SlrReanalysisBacktestSummary {
 export async function runSlrReanalysisBacktestForResort(
   resort: Resort,
   startDate: string,
-  endDate: string
+  endDate: string,
+  overrides: SlrReanalysisBacktestOverrides = {}
 ): Promise<SlrReanalysisBacktestSummary> {
   if (!resort.snotel_station_triplet) {
     return { resortSlug: resort.slug, daysCompared: 0, daysSkipped: 0, error: "no SNOTEL station resolved for this resort" };
@@ -165,8 +182,9 @@ export async function runSlrReanalysisBacktestForResort(
     for (const bucket of buckets) {
       const result = computeSlrBacktestDay({
         bucket,
-        calibrationMultiplier: resort.slr_calibration_multiplier,
+        calibrationMultiplier: overrides.calibrationMultiplier ?? resort.slr_calibration_multiplier,
         observedSnowfallIn: observedByDate.get(bucket.date) ?? null,
+        slrStrategyName: overrides.slrStrategyName,
       });
       if (!result) {
         daysSkipped += 1;
@@ -183,8 +201,9 @@ export async function runSlrReanalysisBacktestForResort(
           accuracy_error_in: result.errorIn,
           lead_time_hours_at_prediction: SLR_REANALYSIS_BACKTEST_LEAD_TIME_HOURS,
           source: "slr_reanalysis_backtest",
+          model_version_id: overrides.modelVersionId ?? null,
         },
-        { onConflict: "resort_id,target_date,lead_time_hours_at_prediction,source" }
+        { onConflict: "resort_id,target_date,lead_time_hours_at_prediction,source,model_version_id" }
       );
       if (upsertError) throw upsertError;
       daysCompared += 1;

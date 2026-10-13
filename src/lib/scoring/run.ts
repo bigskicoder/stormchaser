@@ -7,8 +7,8 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
-import { DEFAULT_SLR_STRATEGY } from "@/lib/config/constants";
 import type { ForecastPull, ModelName, Resort } from "@/lib/db/types";
+import { getActiveScoringConfig } from "@/lib/model-versions/resolve";
 import {
   dailyAvgCloudCoverPct,
   dailyAvgTempC,
@@ -23,6 +23,7 @@ import {
   precipWeightedTmaxC,
   primaryModelForLeadTime,
 } from "./aggregate";
+import { DEFAULT_SCORING_CONFIG, type ScoringConfig } from "./config";
 import { scoreEnsembleConfidence } from "./ensemble-confidence";
 import { computeLeadTimeFit, computeNormalizedSnowfall, computePowderScore } from "./powder-score";
 import { reconcileModels } from "./reconciliation";
@@ -51,6 +52,8 @@ export interface ScoreComputation {
   maxWindGustKmh: number | null;
   avgCloudCoverPct: number | null;
   windHoldProbability: number | null;
+  /** Which model_versions row's config computed this score — see lib/scoring/config.ts (ROADMAP Phase C, model versioning). Null when no active version exists yet (DEFAULT_SCORING_CONFIG fallback). */
+  modelVersionId: string | null;
 }
 
 /** Hours from `now` until the target date's LOCAL midnight (the resort's ski-day start), not UTC midnight. */
@@ -69,6 +72,10 @@ export interface ScoreInputs {
   ensembleMemberTotals: number[];
   slrCalibrationMultiplier: number;
   seasonalMaxSnowfallIn: number;
+  /** Omit for the compiled-in defaults (DEFAULT_SCORING_CONFIG) — see lib/scoring/config.ts. */
+  scoringConfig?: ScoringConfig;
+  /** Passthrough bookkeeping only — not read by the computation itself, just carried onto the returned ScoreComputation so callers can persist which version produced this score without a second round trip. */
+  modelVersionId?: string | null;
 }
 
 /**
@@ -80,8 +87,17 @@ export interface ScoreInputs {
  * ever drifting apart into two subtly different implementations.
  */
 export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | null {
-  const { resortId, targetDate, leadTimeHours, modelRuns, ensembleMemberTotals, slrCalibrationMultiplier, seasonalMaxSnowfallIn } =
-    inputs;
+  const {
+    resortId,
+    targetDate,
+    leadTimeHours,
+    modelRuns,
+    ensembleMemberTotals,
+    slrCalibrationMultiplier,
+    seasonalMaxSnowfallIn,
+    modelVersionId,
+  } = inputs;
+  const config = inputs.scoringConfig ?? DEFAULT_SCORING_CONFIG;
   const availableModels = Object.keys(modelRuns) as ModelName[];
   if (availableModels.length === 0) return null;
 
@@ -90,13 +106,19 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
     modelDailyTotals[model] = dailyPrecipTotalMm(modelRuns[model] ?? []);
   }
 
-  const reconciliation = reconcileModels(modelDailyTotals, leadTimeHours);
-  const ensembleConfidence = scoreEnsembleConfidence(ensembleMemberTotals, reconciliation.disagreementFlag);
+  const reconciliation = reconcileModels(modelDailyTotals, leadTimeHours, {
+    weightsByBucket: config.modelWeightsByBucket,
+    disagreementThreshold: config.modelDisagreementThreshold,
+  });
+  const ensembleConfidence = scoreEnsembleConfidence(ensembleMemberTotals, reconciliation.disagreementFlag, {
+    thresholds: config.ensembleConfidenceThresholds,
+    spreadNormalizationCeilingMm: config.ensembleSpreadNormalizationCeilingMm,
+  });
 
   const primaryModel = primaryModelForLeadTime(leadTimeHours, availableModels) ?? availableModels[0]!;
   const tmaxC = precipWeightedTmaxC(modelRuns[primaryModel] ?? []);
 
-  const slrStrategy = getSlrStrategy(DEFAULT_SLR_STRATEGY);
+  const slrStrategy = getSlrStrategy(config.slrStrategyName);
   const slrResult = slrStrategy.computeRatio({
     tmaxC,
     calibrationMultiplier: slrCalibrationMultiplier,
@@ -107,13 +129,22 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
     : (reconciliation.reconciledValue * slrResult.ratio) / 25.4;
 
   const normalizedSnowfall = computeNormalizedSnowfall(estimatedSnowfallIn, seasonalMaxSnowfallIn);
-  const leadTimeFit = computeLeadTimeFit(leadTimeHours);
-
-  const powderScore = computePowderScore({
-    normalizedSnowfall,
-    confidenceLabel: ensembleConfidence.confidenceLabel,
-    leadTimeFit,
+  const leadTimeFit = computeLeadTimeFit(leadTimeHours, {
+    actionableWindowHours: config.actionableWindowHours,
+    decayPerHour: config.leadTimeFitDecayPerHour,
   });
+
+  const powderScore = computePowderScore(
+    {
+      normalizedSnowfall,
+      confidenceLabel: ensembleConfidence.confidenceLabel,
+      leadTimeFit,
+    },
+    {
+      weights: config.powderScoreWeights,
+      confidenceWeightByLabel: config.confidenceWeightByLabel,
+    }
+  );
 
   // Display-only daily weather/wind summary (resort detail page) — averaged
   // across whichever models reported a day, not part of the scoring math
@@ -145,6 +176,7 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
     maxWindGustKmh,
     avgCloudCoverPct,
     windHoldProbability,
+    modelVersionId: modelVersionId ?? null,
   };
 }
 
@@ -157,6 +189,7 @@ export async function computeScoreForResortDay(
   const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDateIso, resort.timezone);
   const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDateIso, resort.timezone);
   const seasonalMaxIn = await fetchSeasonalMaxSnowfallIn(resort.id);
+  const { config, versionId } = await getActiveScoringConfig();
 
   return computeScoreFromInputs({
     resortId: resort.id,
@@ -166,6 +199,8 @@ export async function computeScoreForResortDay(
     ensembleMemberTotals,
     slrCalibrationMultiplier: resort.slr_calibration_multiplier,
     seasonalMaxSnowfallIn: seasonalMaxIn,
+    scoringConfig: config,
+    modelVersionId: versionId,
   });
 }
 
@@ -236,6 +271,7 @@ export async function runScoringForAllResorts(
           max_wind_gust_kmh: score.maxWindGustKmh,
           avg_cloud_cover_pct: score.avgCloudCoverPct,
           wind_hold_probability: score.windHoldProbability,
+          model_version_id: score.modelVersionId,
         });
         if (insertError) throw insertError;
         scoresWritten += 1;

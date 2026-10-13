@@ -1,7 +1,11 @@
 /**
  * One-time (or re-runnable) seed script: upserts RESORTS_SEED into the
  * `resorts` table, then runs the elevation onboarding check (section 2.1a)
- * and SNOTEL station resolution (section 2.2) for every row.
+ * and SNOTEL station resolution (section 2.2) for every row, then ensures a
+ * baseline model_versions row exists and is active (ROADMAP Phase C model
+ * versioning) so live scoring and backtests have a real model_version_id to
+ * tag their output with from the very first run, rather than relying on the
+ * DEFAULT_SCORING_CONFIG fallback indefinitely.
  *
  * Usage: npm run seed:resorts
  * Requires NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in the env.
@@ -12,6 +16,7 @@ import { RESORTS_SEED } from "../src/lib/config/resorts-seed";
 import { runElevationCheckForAllResorts } from "../src/lib/ingestion/elevation";
 import { resolveSnotelStationsForAllResorts } from "../src/lib/ingestion/snotel";
 import { resolveNwsGridpointsForAllResorts } from "../src/lib/ingestion/nws";
+import { createBaselineVersionIfNoneExists } from "../src/lib/model-versions/create";
 
 async function main() {
   const db = getServiceDb();
@@ -61,6 +66,10 @@ async function main() {
   } catch (err) {
     console.warn("NWS gridpoint resolution failed (network unavailable?):", (err as Error).message);
   }
+
+  console.log("Seeding baseline model version (if none exists)...");
+  const baseline = await createBaselineVersionIfNoneExists();
+  console.log(`Active model version: "${baseline.name}" (${baseline.id}).`);
 
   console.log("Seed complete.");
 }

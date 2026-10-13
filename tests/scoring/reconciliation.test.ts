@@ -43,4 +43,22 @@ describe("reconcileModels", () => {
   it("throws when no models overlap the bucket's weight table", () => {
     expect(() => reconcileModels({}, 12)).toThrow();
   });
+
+  describe("config override (model versioning)", () => {
+    it("uses an overridden weight table instead of the compiled-in default", () => {
+      const equalWeights = { T0_48: { hrrr: 0.25, gfs: 0.25, icon: 0.25, ecmwf: 0.25 }, T48_120: {}, T120_PLUS: {} };
+      const result = reconcileModels({ hrrr: 100, gfs: 0, icon: 0, ecmwf: 0 }, 12, { weightsByBucket: equalWeights });
+      // Equal weights across 4 models, only hrrr non-zero -> 100 * 0.25.
+      expect(result.reconciledValue).toBeCloseTo(25, 5);
+    });
+
+    it("uses an overridden disagreement threshold instead of the compiled-in default", () => {
+      // Spread that would NOT trip the default 0.4 threshold...
+      const mild = reconcileModels({ hrrr: 10, gfs: 10, icon: 10, ecmwf: 13 }, 12);
+      expect(mild.disagreementFlag).toBe(false);
+      // ...but does trip a much stricter overridden threshold.
+      const strict = reconcileModels({ hrrr: 10, gfs: 10, icon: 10, ecmwf: 13 }, 12, { disagreementThreshold: 0.1 });
+      expect(strict.disagreementFlag).toBe(true);
+    });
+  });
 });

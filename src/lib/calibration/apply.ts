@@ -3,10 +3,24 @@
  * resorts.slr_calibration_multiplier as a result of a calibration
  * recommendation. Requires an explicit admin decision (approve/reject);
  * nothing in lib/calibration/generate.ts or the cron job calls this.
+ *
+ * ROADMAP Phase C (model versioning): approving a recommendation no longer
+ * overwrites resorts.slr_calibration_multiplier directly with nothing to
+ * undo. It creates a new model_versions row — same global scoring config as
+ * whatever's currently active, just this one resort's multiplier changed —
+ * and activates it via lib/model-versions/activate.ts, which is what
+ * actually performs the resorts table write (same end effect, now with a
+ * named, timestamped, rollback-able version behind it). The version this
+ * branches from becomes parent_version_id, so "undo this calibration
+ * change" is just activating that parent again from the admin dashboard —
+ * no separate undo code path needed.
  */
 
 import { getServiceDb } from "@/lib/db/client";
 import type { CalibrationRecommendation } from "@/lib/db/types";
+import { activateModelVersion } from "@/lib/model-versions/activate";
+import { createBaselineVersionIfNoneExists, createModelVersion } from "@/lib/model-versions/create";
+import { toScoringConfig } from "@/lib/scoring/config";
 
 export async function reviewCalibrationRecommendation(
   recommendationId: string,
@@ -17,20 +31,31 @@ export async function reviewCalibrationRecommendation(
 
   const { data: recData, error: recError } = await db
     .from("calibration_recommendations")
-    .select("*")
+    .select("*, resorts(slug)")
     .eq("id", recommendationId)
     .maybeSingle();
   if (recError) throw recError;
-  const recommendation = recData as CalibrationRecommendation | null;
+  const recommendation = recData as (CalibrationRecommendation & { resorts: { slug: string } | null }) | null;
   if (!recommendation) throw new Error("recommendation_not_found");
   if (recommendation.status !== "pending") throw new Error(`recommendation already ${recommendation.status}`);
 
   if (decision === "approved") {
-    const { error: updateResortError } = await db
-      .from("resorts")
-      .update({ slr_calibration_multiplier: recommendation.recommended_multiplier })
-      .eq("id", recommendation.resort_id);
-    if (updateResortError) throw updateResortError;
+    // Guarantees an active version to branch from, even on a deploy where
+    // seed-resorts.ts's baseline step hasn't run yet — see that function's
+    // own doc comment.
+    const currentActive = await createBaselineVersionIfNoneExists();
+    const resortLabel = recommendation.resorts?.slug ?? recommendation.resort_id;
+
+    const draft = await createModelVersion({
+      name: `Calibration: ${resortLabel} → ${recommendation.recommended_multiplier.toFixed(3)}`,
+      description: `Auto-created on approval of calibration recommendation ${recommendation.id} for ${resortLabel} (${recommendation.sample_count} samples, mean signed error ${recommendation.mean_signed_error_in.toFixed(2)}in, ${recommendation.current_multiplier.toFixed(3)} → ${recommendation.recommended_multiplier.toFixed(3)}).`,
+      config: toScoringConfig(currentActive),
+      resortSlrMultipliers: { ...currentActive.resort_slr_multipliers, [recommendation.resort_id]: recommendation.recommended_multiplier },
+      parentVersionId: currentActive.id,
+      createdBy: reviewedBy,
+      status: "draft",
+    });
+    await activateModelVersion(draft.id, reviewedBy);
   }
 
   const { data: updated, error: updateRecError } = await db

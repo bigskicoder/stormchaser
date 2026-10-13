@@ -26,8 +26,10 @@ export default async function AdminCalibrationPage() {
       </h2>
       <p style={{ color: "var(--text-muted)" }}>
         ROADMAP Phase B — recommend-only. Generated weekly from accuracy_log history (minimum 15 samples per resort),
-        bounded to &plusmn;5% per update. Nothing here is applied until approved below; approving writes directly to
-        the resort&rsquo;s <code>slr_calibration_multiplier</code>.
+        bounded to &plusmn;5% per update. Nothing here is applied until approved below; approving creates and
+        activates a new entry on the <a href="/admin/model-versions">model versions</a> page with this one
+        resort&rsquo;s multiplier updated — the previous version stays saved, so the change can be rolled back from
+        there.
       </p>
       <table>
         <thead>

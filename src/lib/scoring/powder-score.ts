@@ -12,6 +12,17 @@ import {
 } from "@/lib/config/constants";
 import type { ConfidenceLabel } from "@/lib/db/types";
 
+/** Optional override — see ReconciliationConfigOverride's doc comment; same backward-compatibility guarantee. */
+export interface LeadTimeFitConfigOverride {
+  actionableWindowHours?: { min: number; max: number };
+  decayPerHour?: number;
+}
+
+export interface PowderScoreConfigOverride {
+  weights?: { SNOWFALL: number; CONFIDENCE: number; LEAD_TIME_FIT: number };
+  confidenceWeightByLabel?: { high: number; medium: number; low: number };
+}
+
 /**
  * 1.0 inside the actionable window [min, max] hours out; decays linearly
  * outside it at LEAD_TIME_FIT_DECAY_PER_HOUR per hour, floored at 0. Applies
@@ -19,11 +30,12 @@ import type { ConfidenceLabel } from "@/lib/db/types";
  * window, so plan-ahead value is lower) and very-long lead times (forecast
  * confidence hasn't matured yet).
  */
-export function computeLeadTimeFit(leadTimeHours: number): number {
-  const { min, max } = ACTIONABLE_WINDOW_HOURS;
+export function computeLeadTimeFit(leadTimeHours: number, configOverride?: LeadTimeFitConfigOverride): number {
+  const { min, max } = configOverride?.actionableWindowHours ?? ACTIONABLE_WINDOW_HOURS;
+  const decayPerHour = configOverride?.decayPerHour ?? LEAD_TIME_FIT_DECAY_PER_HOUR;
   if (leadTimeHours >= min && leadTimeHours <= max) return 1.0;
   const hoursOutside = leadTimeHours < min ? min - leadTimeHours : leadTimeHours - max;
-  return Math.max(0, 1 - hoursOutside * LEAD_TIME_FIT_DECAY_PER_HOUR);
+  return Math.max(0, 1 - hoursOutside * decayPerHour);
 }
 
 /** Normalizes estimated snowfall against a rolling seasonal max for the resort (0-1, clamped). */
@@ -38,11 +50,13 @@ export interface PowderScoreInput {
   leadTimeFit: number;
 }
 
-export function computePowderScore(input: PowderScoreInput): number {
-  const confidenceWeight = CONFIDENCE_WEIGHT_BY_LABEL[input.confidenceLabel];
+export function computePowderScore(input: PowderScoreInput, configOverride?: PowderScoreConfigOverride): number {
+  const weights = configOverride?.weights ?? POWDER_SCORE_WEIGHTS;
+  const confidenceWeightByLabel = configOverride?.confidenceWeightByLabel ?? CONFIDENCE_WEIGHT_BY_LABEL;
+  const confidenceWeight = confidenceWeightByLabel[input.confidenceLabel];
   const score =
-    POWDER_SCORE_WEIGHTS.SNOWFALL * input.normalizedSnowfall +
-    POWDER_SCORE_WEIGHTS.CONFIDENCE * confidenceWeight +
-    POWDER_SCORE_WEIGHTS.LEAD_TIME_FIT * input.leadTimeFit;
+    weights.SNOWFALL * input.normalizedSnowfall +
+    weights.CONFIDENCE * confidenceWeight +
+    weights.LEAD_TIME_FIT * input.leadTimeFit;
   return Math.max(0, Math.min(1, score));
 }
