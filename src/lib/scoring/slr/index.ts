@@ -3,6 +3,7 @@ import type { SlrStrategyName } from "@/lib/db/types";
 import { cobbWaldstreicherStrategy } from "./cobb-waldstreicher.stub";
 import { fixedRatioStrategy } from "./fixed-ratio";
 import { kucheraStrategy } from "./kuchera";
+import { kucheraWindStrategy } from "./kuchera-wind";
 import type { SlrStrategy } from "./types";
 
 export type { SlrInput, SlrResult, SlrStrategy } from "./types";
@@ -12,6 +13,7 @@ const STRATEGIES: Record<SlrStrategyName, SlrStrategy> = {
   kuchera: kucheraStrategy,
   "fixed-ratio": fixedRatioStrategy,
   "cobb-waldstreicher": cobbWaldstreicherStrategy,
+  "kuchera-wind": kucheraWindStrategy,
 };
 
 export function getSlrStrategy(name: SlrStrategyName = DEFAULT_SLR_STRATEGY): SlrStrategy {

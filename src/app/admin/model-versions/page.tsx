@@ -2,6 +2,7 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/status-badge";
 import { ModelVersionActivateButton } from "@/components/model-version-activate-button";
 import { ModelVersionCreateForm } from "@/components/model-version-create-form";
+import { ModelVersionShadowToggle } from "@/components/model-version-shadow-toggle";
 import { createBaselineVersionIfNoneExists } from "@/lib/model-versions/create";
 import { listModelVersions } from "@/lib/model-versions/resolve";
 import { compareModelVersions } from "@/lib/model-versions/compare";
@@ -46,6 +47,12 @@ export default async function AdminModelVersionsPage({
         one that is. Activating an older version is how you roll back &mdash; there&rsquo;s no separate
         &ldquo;undo.&rdquo;
       </p>
+      <p style={{ color: "var(--text-muted)" }}>
+        <strong>Parallel scoring (Phase B.2)</strong>: start shadowing a draft to score it on every live run
+        alongside the active version, on the exact same forecast data, writing its own comparison data &mdash;
+        never shown on the public site, never alert-triggering. Compare it against the active version below once
+        samples accumulate, the same way as any other comparison.
+      </p>
 
       {duplicateFromVersion && (
         <ModelVersionCreateForm
@@ -65,6 +72,7 @@ export default async function AdminModelVersionsPage({
               <th>SLR strategy</th>
               <th>Parent</th>
               <th>Created</th>
+              <th>Parallel scoring</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -88,6 +96,9 @@ export default async function AdminModelVersionsPage({
                 <td data-label="Created">
                   {new Date(v.created_at).toLocaleDateString()}
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{v.created_by}</div>
+                </td>
+                <td data-label="Parallel scoring">
+                  <ModelVersionShadowToggle id={v.id} isShadow={v.is_shadow} isActive={v.status === "active"} />
                 </td>
                 <td data-label="Action">
                   <div style={{ display: "flex", gap: 10, alignItems: "center" }}>

@@ -25,10 +25,11 @@ links back here for status.
 | A.1 | Public-baseline comparison (NWS, not OpenSnow) | ✅ Built | Done |
 | B | Self-tuning SLR calibration | 🔶 Mechanism + 2 historical backtest pipelines built | Needs Phase 0, then just `npm run backtest:*` |
 | B.1 | Model versioning (save/compare/roll back) | ✅ Built | Done — `/admin/model-versions` |
+| B.2 | Parallel model scoring ("shadow mode") | ✅ Built, dormant until a draft is shadowed | **You** — create a `kuchera-wind` draft and toggle shadowing |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 | D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
 
-**Test/build state as of this update**: 163/163 unit tests passing, clean
+**Test/build state as of this update**: 176/176 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -380,6 +381,147 @@ multipliers from the new-draft form — that stays governed by the
 calibration-recommendation flow specifically, so there's exactly one
 place a resort's multiplier can change, not two paths that could
 disagree.
+
+---
+
+## Phase B.2 — Parallel model scoring ("shadow mode")
+
+**Status: ✅ built, dormant until you shadow a draft.**
+`supabase/migrations/0009_shadow_scoring.sql`,
+`lib/scoring/slr/kuchera-wind.ts`, `lib/model-versions/shadow.ts`,
+`lib/scoring/run.ts`, `/admin/model-versions`. 13 new unit tests
+(`kuchera-wind.test.ts`'s 9, one `computeScoreFromInputs` integration
+test, 3 for `shadowCalibrationMultiplier`).
+
+Requested directly: *"can you produce multiple models and in season 1 we
+can run them parallel and compare? (Build in compare)"* Phase B.1 already
+let you save, activate, and retrospectively compare model versions — but
+only one version could ever be **live** at a time; comparing a second one
+meant backtesting it separately or waiting to activate it later, never
+scoring it against the exact same storm, the exact same day, as the
+version actually facing the public. This phase closes that gap: any
+number of draft versions can now be scored in parallel with the active
+one, every cron run, all season, with zero risk to what subscribers see
+or what triggers an alert.
+
+**The core distinction: `active` vs. `is_shadow`.** A model version is
+either the one production path (`status = 'active'` — public site,
+alerts, the thing Phase B.1 already built) or a parallel comparison-only
+run (`is_shadow = true`) — never both, enforced by a DB CHECK constraint
+(`model_versions_active_not_shadow`) rather than just application logic,
+so this can't drift into an unsafe state even from a direct DB edit or a
+future code change that forgets to check. `activateModelVersion` now also
+clears `is_shadow` on whatever it activates, so promoting a version
+that's currently shadowing can't violate the constraint it's about to
+satisfy a different way.
+
+**Why this needed more than "run the scoring function twice"**: every
+place that read `snow_scores` or `accuracy_log` by picking "the latest
+row for this resort/date" — the public site (`lib/public/resort-scores.ts`),
+the alert trigger (`lib/alerts/trigger.ts`), and the accuracy summary
+(`lib/backtest/accuracy.ts`) — had no concept of "which version wrote
+this row," because until now there was only ever one row per resort/date.
+The instant a shadow version starts writing its own rows alongside the
+active one, those three call sites would non-deterministically serve,
+alert on, or average in whichever row happened to sort first — including,
+in the worst case, an experimental shadow score triggering a real
+subscriber notification. Fixed with one new boolean, `is_primary`, added
+to both `snow_scores` and `accuracy_log` and set at write time (`true`
+for the active version's row, `false` for every shadow row). All three
+call sites now filter `.eq("is_primary", true)` before picking "the
+latest row" — a shadow version's output literally cannot reach a
+subscriber or skew the live accuracy report, by construction, not by
+convention. The pure comparison logic in `lib/alerts/trigger.ts`
+(`selectCurrentBestQualifyingScore`) was deliberately left untouched —
+filtering happens one layer up, at the query, before shadow data ever
+reaches it.
+
+**`lib/scoring/run.ts`'s orchestrator, rewritten to share inputs instead
+of duplicating ingestion reads**: `runScoringForAllResorts` now resolves
+the active config and the full list of shadow versions *once* at the top
+of the run (`getActiveScoringConfig()`, `listShadowModelVersions()`),
+then for each resort/date fetches `modelRuns`/`ensembleMemberTotals`/
+`seasonalMaxSnowfallIn` *once* and reuses that same fetched data for the
+active config's score **and** every shadow version's score. A season
+with, say, 3 shadow versions running does not mean 4x the Open-Meteo/
+SNOTEL read volume — only 4x the (cheap, in-memory) scoring computation.
+Each shadow score is computed with `computeScoreFromInputs` using that
+shadow's own `toScoringConfig(shadow)` and a new exported helper,
+`shadowCalibrationMultiplier(shadow, resort)`, which uses the shadow
+version's own snapshotted per-resort SLR multiplier when it has one and
+falls back to the resort's live multiplier otherwise — the exact same
+fallback semantics `activateModelVersion` and the backtest scripts'
+`--version` flag already established, not a new convention.
+
+**`lib/backtest/accuracy.ts`'s accuracy logging, rewritten per-version**:
+previously picked the single newest `snow_scores` row for a resort/date
+and logged one `accuracy_log` row from it. With shadow scoring, a given
+`computed_at` run can produce several rows for the same resort/date (one
+per version scored that run) — the old logic would have picked one of
+them at random and silently dropped the rest, defeating the entire point
+of running them in parallel. `logPowderAlertAccuracy` now fetches every
+`snow_scores` row sharing the latest `computed_at` for that resort/date
+and logs one `accuracy_log` row per version, each tagged with its own
+`model_version_id` and `is_primary`. Returns `{matched, skipped}` counts
+instead of a single string so the caller's totals stay accurate across
+however many versions ran.
+
+**The second model to actually shadow: `kuchera-wind`**
+(`lib/scoring/slr/kuchera-wind.ts`). The existing Kuchera SLR strategy
+only looks at temperature; `kuchera-wind` applies the same base formula
+and then derates the ratio with a simple linear wind-speed adjustment
+(floor at 60% of the unadjusted ratio, so it bends but can't collapse the
+estimate at extreme wind). **This is explicitly an engineering hypothesis,
+not a reproduction of a published model.** The background research this
+session confirmed real literature supports the *direction* (wind-driven
+snow densification is real, and a follow-up to the paper this codebase's
+Kuchera coefficients already cite found that a model using wind
+outperforms a temperature-only one) — but the actual published
+regression coefficients were never retrievable (WebFetch was blocked to
+every candidate source all session), so rather than fabricate numbers and
+attribute them to that paper, the adjustment uses small, named, clearly
+documented constants (`WIND_SLR_ADJUSTMENT_PER_KMH`,
+`WIND_SLR_ADJUSTMENT_FLOOR` in `lib/config/constants.ts`) with a header
+comment saying plainly that they're a conservative placeholder, to be
+judged on this season's own shadow-scored accuracy data, not assumed
+correct in advance. If missing wind data ever reaches it, it returns the
+unadjusted Kuchera ratio rather than guessing — "missing data means no
+claim," the same convention the rest of this scoring engine already
+follows.
+
+**How to actually use this, this season**: from `/admin/model-versions`,
+create a new draft (the existing "New draft" form from Phase B.1) with
+`slrStrategyName: "kuchera-wind"` and otherwise the same config as the
+active version, then click its new "Start shadowing" toggle. From the
+next cron run on, it scores every resort/date alongside the active
+version with zero further action needed. Check in on it anytime with the
+existing compare view (checkbox-select the active version and the shadow
+version, submit) — no new UI was built for this because the Phase B.1
+compare view already does exactly this job once both versions have
+`accuracy_log` samples tagged with their own `model_version_id`. Toggle
+"Shadowing — stop" to retire a comparison without deleting its history.
+You can shadow more than one draft at once if you want a 3+-way season
+comparison — nothing in this design assumes exactly two.
+
+**Verified**: the new `is_primary`/`is_shadow` plumbing was traced through
+by reading `trigger.ts`, `run.ts`, and `resort-scores.ts` in full before
+writing any code, specifically looking for every "pick the latest row"
+read path a second row-per-date could silently break — not just the ones
+already suspected. The new admin "Parallel scoring" column was verified
+visually via a temporary `/preview-shadow-column` fixture route and
+`playwright-core` screenshots covering all three states (shadowing, not
+shadowing, and the active version's disabled "scored live" state),
+removed before commit. `npx tsc --noEmit`, `npx vitest run` (176/176),
+and `npx next build` all clean as of this update.
+
+**What this deliberately doesn't do**: no automatic promotion of a shadow
+version to active, however well it scores — that's still Phase B.1's
+explicit, human-click activation, on purpose. No weighting or blending of
+a shadow version's output into the active one's alerts — shadow scores
+are comparison-only data, never a live input. No limit on how many
+versions can shadow at once, but also no UI warning if you shadow so many
+that `/admin/model-versions`'s compare view gets hard to read — a
+reasonable follow-up if a season ever actually produces that problem.
 
 ---
 
@@ -992,6 +1134,38 @@ to re-read the original primer to know what's accounted for.
   end-to-end against the real (unconfigured) API route, not just the
   static layout. Removed before commit. 11 new tests (163 total), clean
   typecheck, clean build.
+- **2026-10-14** — Built parallel model scoring / "shadow mode" (Phase
+  B.2), requested directly: *"can you produce multiple models and in
+  season 1 we can run them parallel and compare? (Build in compare)"*.
+  Added `is_shadow` to `model_versions` (DB CHECK: never both `active`
+  and `is_shadow`) and `is_primary` to `snow_scores`/`accuracy_log`
+  (migration `0009`), so any number of draft versions can now be scored
+  on the exact same live inputs as the active version every cron run,
+  without risk to the public site or alerts. Found, by reading
+  `trigger.ts`/`run.ts`/`resort-scores.ts` in full before writing code,
+  that three separate "pick the latest row" read paths (public site,
+  alert trigger, accuracy summary) would have non-deterministically
+  served or alerted on a shadow version's score the moment a second row
+  per resort/date existed — fixed all three with `.eq("is_primary", true)`
+  filters. Rewrote `runScoringForAllResorts` to fetch each resort/date's
+  model/ensemble inputs once and reuse them across the active config and
+  every shadow config, so N parallel shadow versions cost N× the (cheap)
+  scoring math, not N× the ingestion reads. Rewrote
+  `logPowderAlertAccuracy` to log one `accuracy_log` row per version
+  sharing a `computed_at` instead of picking one at random and dropping
+  the rest. Built a second real SLR strategy to actually shadow,
+  `kuchera-wind` — a wind-derated variant of the existing Kuchera
+  strategy, explicitly documented as an engineering hypothesis (literature
+  supports the *direction*; the cited paper's own follow-up coefficients
+  were never retrievable this session, WebFetch having been blocked to
+  every candidate source, so small conservative named constants are used
+  instead of fabricated figures attributed to that paper) to be judged on
+  this season's own shadow-scored data. Added a shadow-toggle API route
+  and an `/admin/model-versions` UI column — the existing Phase B.1
+  compare view does the rest, no new comparison UI needed. Verified the
+  new UI column via a temporary `/preview-shadow-column` fixture route
+  and `playwright-core` screenshots of all three toggle states, removed
+  before commit. 13 new tests (176 total), clean typecheck, clean build.
 
 ---
 
@@ -1009,11 +1183,16 @@ Phase B.1 is already built and needs nothing further from you — every
 calibration approval now creates its own rollback point automatically;
 `/admin/model-versions` is just there for when you want to look at
 lineage, compare a draft's backtest numbers before activating it, or roll
-back. → Phase B's broader constants (alert threshold, score weights) only
-after the per-resort SLR case has run a full cycle and you're comfortable
-with it — if you do eventually want to tune one of those, do it as a
-draft model version first and backtest under it before activating, same
-discipline as everything else in Phase B. Phase D ran independently of
-all of this and its first pass is done — a decided product name is the
-only real blocker left for a final polish pass (swapping "powder-alert"
-for the real name/logo).
+back. → Phase B.2 needs exactly one action from you, whenever you want to
+start the season-long comparison: create a `kuchera-wind` draft from
+`/admin/model-versions` and toggle "Start shadowing" — everything else
+(parallel scoring every cron run, per-version accuracy logging, the
+compare view) is already live and needs nothing further. → Phase B's
+broader constants (alert threshold, score weights) only after the
+per-resort SLR case has run a full cycle and you're comfortable with it —
+if you do eventually want to tune one of those, do it as a draft model
+version first and backtest under it before activating, same discipline
+as everything else in Phase B. Phase D ran independently of all of this
+and its first pass is done — a decided product name is the only real
+blocker left for a final polish pass (swapping "powder-alert" for the
+real name/logo).

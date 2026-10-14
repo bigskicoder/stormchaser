@@ -15,7 +15,7 @@ const scoringConfigSchema = z.object({
   modelDisagreementThreshold: z.number(),
   ensembleConfidenceThresholds: z.object({ HIGH_MIN: z.number(), MEDIUM_MIN: z.number() }),
   ensembleSpreadNormalizationCeilingMm: z.number(),
-  slrStrategyName: z.enum(["kuchera", "fixed-ratio", "cobb-waldstreicher"]),
+  slrStrategyName: z.enum(["kuchera", "fixed-ratio", "cobb-waldstreicher", "kuchera-wind"]),
   powderScoreWeights: z.object({ SNOWFALL: z.number(), CONFIDENCE: z.number(), LEAD_TIME_FIT: z.number() }),
   confidenceWeightByLabel: z.object({ high: z.number(), medium: z.number(), low: z.number() }),
   actionableWindowHours: z.object({ min: z.number(), max: z.number() }),

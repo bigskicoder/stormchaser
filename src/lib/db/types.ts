@@ -6,7 +6,8 @@ export type ModelName = "hrrr" | "gfs" | "icon" | "ecmwf" | "gem";
 export type ConfidenceLabel = "low" | "medium" | "high";
 export type DeliveryStatus = "pending" | "sent" | "failed" | "skipped_rate_limited";
 export type SocialPostStatus = "draft" | "approved" | "publishing" | "posted" | "failed";
-export type SlrStrategyName = "kuchera" | "fixed-ratio" | "cobb-waldstreicher";
+/** 'kuchera-wind' is an experimental, explicitly-labeled hypothesis (not a reproduction of any published model) — see lib/scoring/slr/kuchera-wind.ts for the full rationale. */
+export type SlrStrategyName = "kuchera" | "fixed-ratio" | "cobb-waldstreicher" | "kuchera-wind";
 /**
  * accuracy_log.source — no DB-level CHECK constraint (see migration 0004's
  * comment), so this union is the only place new values are declared.
@@ -106,6 +107,8 @@ export interface SnowScore {
   wind_hold_probability: number | null;
   /** Which model_versions row's config computed this score — null for rows predating model versioning (falls back to hardcoded defaults either way). */
   model_version_id: string | null;
+  /** True = the production score for this resort/date (drives the public site + alert trigger). False = a shadow version's score, comparison-only — see lib/model-versions/shadow.ts. Always true for rows predating shadow scoring. */
+  is_primary: boolean;
   created_at: string;
 }
 
@@ -184,6 +187,8 @@ export interface AccuracyLogRow {
   source: AccuracyLogSource;
   /** Which model_versions row was active/under-test when this row was computed — lets the comparison view aggregate real historical results by version without re-running anything. */
   model_version_id: string | null;
+  /** True = this row traces back to a production (primary) snow_scores row; false = a shadow version's row. getAccuracySummary filters to true so shadow-version experiments never skew the "how are we doing live" report. Always true for NWS/backtest-sourced rows, which don't involve shadow scoring. */
+  is_primary: boolean;
   logged_at: string;
 }
 
@@ -252,6 +257,8 @@ export interface ModelVersion {
   /** Who activated the CURRENT activation — distinct from created_by. See the migration's own comment on why this isn't a full activation history. */
   activated_by: string | null;
   activated_at: string | null;
+  /** True while this version is being scored in parallel alongside whichever version is active — see lib/model-versions/shadow.ts. Mutually exclusive with status='active' (DB-enforced): the active version is already scored as the primary row every run. */
+  is_shadow: boolean;
   created_at: string;
 }
 

@@ -41,6 +41,7 @@ function score(targetDate: string, estimatedIn: number, isRainCase = false): Sno
     avg_cloud_cover_pct: null,
     wind_hold_probability: null,
     model_version_id: null,
+    is_primary: true,
     created_at: "2026-01-01T00:00:00Z",
   };
 }

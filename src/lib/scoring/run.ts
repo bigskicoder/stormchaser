@@ -7,8 +7,8 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
-import type { ForecastPull, ModelName, Resort } from "@/lib/db/types";
-import { getActiveScoringConfig } from "@/lib/model-versions/resolve";
+import type { ForecastPull, ModelName, ModelVersion, Resort } from "@/lib/db/types";
+import { getActiveScoringConfig, listShadowModelVersions } from "@/lib/model-versions/resolve";
 import {
   dailyAvgCloudCoverPct,
   dailyAvgTempC,
@@ -23,7 +23,7 @@ import {
   precipWeightedTmaxC,
   primaryModelForLeadTime,
 } from "./aggregate";
-import { DEFAULT_SCORING_CONFIG, type ScoringConfig } from "./config";
+import { DEFAULT_SCORING_CONFIG, toScoringConfig, type ScoringConfig } from "./config";
 import { scoreEnsembleConfidence } from "./ensemble-confidence";
 import { computeLeadTimeFit, computeNormalizedSnowfall, computePowderScore } from "./powder-score";
 import { reconcileModels } from "./reconciliation";
@@ -117,11 +117,15 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
 
   const primaryModel = primaryModelForLeadTime(leadTimeHours, availableModels) ?? availableModels[0]!;
   const tmaxC = precipWeightedTmaxC(modelRuns[primaryModel] ?? []);
+  // Computed here (not just in the display-only block below) because the
+  // kuchera-wind strategy reads it — same figure either way, computed once.
+  const avgWindSpeedKmh = meanAcrossModels(availableModels.map((m) => dailyAvgWindSpeedKmh(modelRuns[m] ?? [])));
 
   const slrStrategy = getSlrStrategy(config.slrStrategyName);
   const slrResult = slrStrategy.computeRatio({
     tmaxC,
     calibrationMultiplier: slrCalibrationMultiplier,
+    avgWindSpeedKmh,
   });
 
   const estimatedSnowfallIn = slrResult.isRainCase
@@ -149,8 +153,8 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
   // Display-only daily weather/wind summary (resort detail page) — averaged
   // across whichever models reported a day, not part of the scoring math
   // above. See lib/scoring/aggregate.ts header on meanAcrossModels/maxAcrossModels.
+  // avgWindSpeedKmh is computed above (the kuchera-wind strategy reads it too).
   const avgTempC = meanAcrossModels(availableModels.map((m) => dailyAvgTempC(modelRuns[m] ?? [])));
-  const avgWindSpeedKmh = meanAcrossModels(availableModels.map((m) => dailyAvgWindSpeedKmh(modelRuns[m] ?? [])));
   const maxWindGustKmh = maxAcrossModels(availableModels.map((m) => dailyMaxWindGustKmh(modelRuns[m] ?? [])));
   const avgCloudCoverPct = meanAcrossModels(availableModels.map((m) => dailyAvgCloudCoverPct(modelRuns[m] ?? [])));
   const windHoldProbability = estimateWindHoldProbability({ maxWindGustKmh, avgWindSpeedKmh });
@@ -229,7 +233,54 @@ export function nextNDates(n: number, timeZone: string, now: Date = new Date()):
   return dates;
 }
 
-/** Computes and persists snow_scores rows for every active resort across the forecast horizon. */
+/** Inserts one snow_scores row. isPrimary=false for a shadow version's score — never read by the public site or the alert trigger, which only ever query is_primary=true (see lib/public/resort-scores.ts, lib/alerts/trigger.ts). */
+async function insertSnowScore(
+  db: ReturnType<typeof getServiceDb>,
+  score: ScoreComputation,
+  isPrimary: boolean
+): Promise<void> {
+  const { error } = await db.from("snow_scores").insert({
+    resort_id: score.resortId,
+    target_date: score.targetDate,
+    reconciled_swe_mm: score.reconciledSweMm,
+    disagreement_flag: score.disagreementFlag,
+    model_agreement_score: score.modelAgreementScore,
+    ensemble_spread_score: score.ensembleSpreadScore,
+    confidence_label: score.confidenceLabel,
+    slr_strategy: score.slrStrategy,
+    snow_to_liquid_ratio: score.snowToLiquidRatio,
+    is_rain_case: score.isRainCase,
+    estimated_snowfall_in: score.estimatedSnowfallIn,
+    normalized_snowfall: score.normalizedSnowfall,
+    lead_time_hours: score.leadTimeHours,
+    lead_time_fit: score.leadTimeFit,
+    powder_score: score.powderScore,
+    avg_temp_c: score.avgTempC,
+    avg_wind_speed_kmh: score.avgWindSpeedKmh,
+    max_wind_gust_kmh: score.maxWindGustKmh,
+    avg_cloud_cover_pct: score.avgCloudCoverPct,
+    wind_hold_probability: score.windHoldProbability,
+    model_version_id: score.modelVersionId,
+    is_primary: isPrimary,
+  });
+  if (error) throw error;
+}
+
+/** A shadow version's own resort-SLR-multiplier snapshot for this resort, falling back to the resort's live value if it isn't in that snapshot — same semantics as activateModelVersion's "only touches resorts present in the snapshot" and the backtest scripts' --version override. Exported for unit testing. */
+export function shadowCalibrationMultiplier(shadow: ModelVersion, resort: Resort): number {
+  return shadow.resort_slr_multipliers[resort.id] ?? resort.slr_calibration_multiplier;
+}
+
+/**
+ * Computes and persists snow_scores rows for every active resort across the
+ * forecast horizon — the primary (active-version) row that drives the
+ * public site and alerts, plus one additional row per currently-shadowed
+ * model version (ROADMAP Phase B.2, "run multiple models parallel this
+ * season and compare" — requested directly). Every version scores the
+ * EXACT SAME fetched forecast inputs for a given resort/date, fetched once
+ * and reused, not once per version — so parallel scoring costs one extra
+ * DB write per shadow version, not one extra round of ingestion reads.
+ */
 export async function runScoringForAllResorts(
   horizonDays = 10
 ): Promise<{ resorts: number; scoresWritten: number; errors: string[] }> {
@@ -238,6 +289,9 @@ export async function runScoringForAllResorts(
   if (error) throw error;
   const resorts = (data ?? []) as Resort[];
 
+  const { config: activeConfig, versionId: activeVersionId } = await getActiveScoringConfig();
+  const shadowVersions = await listShadowModelVersions();
+
   let scoresWritten = 0;
   const errors: string[] = [];
 
@@ -245,36 +299,38 @@ export async function runScoringForAllResorts(
     // Per-resort, not hoisted above the loop — see nextNDates' own doc
     // comment for why a single shared date list was a real bug.
     const targetDates = nextNDates(horizonDays, resort.timezone);
+    const seasonalMaxIn = await fetchSeasonalMaxSnowfallIn(resort.id);
+
     for (const targetDate of targetDates) {
       try {
-        const score = await computeScoreForResortDay(resort, targetDate);
-        if (!score) continue;
+        const leadTimeHours = leadTimeHoursFor(targetDate, resort.timezone, new Date());
+        const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDate, resort.timezone);
+        const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDate, resort.timezone);
+        const sharedInputs = { resortId: resort.id, targetDate, leadTimeHours, modelRuns, ensembleMemberTotals, seasonalMaxSnowfallIn: seasonalMaxIn };
 
-        const { error: insertError } = await db.from("snow_scores").insert({
-          resort_id: score.resortId,
-          target_date: score.targetDate,
-          reconciled_swe_mm: score.reconciledSweMm,
-          disagreement_flag: score.disagreementFlag,
-          model_agreement_score: score.modelAgreementScore,
-          ensemble_spread_score: score.ensembleSpreadScore,
-          confidence_label: score.confidenceLabel,
-          slr_strategy: score.slrStrategy,
-          snow_to_liquid_ratio: score.snowToLiquidRatio,
-          is_rain_case: score.isRainCase,
-          estimated_snowfall_in: score.estimatedSnowfallIn,
-          normalized_snowfall: score.normalizedSnowfall,
-          lead_time_hours: score.leadTimeHours,
-          lead_time_fit: score.leadTimeFit,
-          powder_score: score.powderScore,
-          avg_temp_c: score.avgTempC,
-          avg_wind_speed_kmh: score.avgWindSpeedKmh,
-          max_wind_gust_kmh: score.maxWindGustKmh,
-          avg_cloud_cover_pct: score.avgCloudCoverPct,
-          wind_hold_probability: score.windHoldProbability,
-          model_version_id: score.modelVersionId,
+        const primaryScore = computeScoreFromInputs({
+          ...sharedInputs,
+          slrCalibrationMultiplier: resort.slr_calibration_multiplier,
+          scoringConfig: activeConfig,
+          modelVersionId: activeVersionId,
         });
-        if (insertError) throw insertError;
-        scoresWritten += 1;
+        if (primaryScore) {
+          await insertSnowScore(db, primaryScore, true);
+          scoresWritten += 1;
+        }
+
+        for (const shadow of shadowVersions) {
+          const shadowScore = computeScoreFromInputs({
+            ...sharedInputs,
+            slrCalibrationMultiplier: shadowCalibrationMultiplier(shadow, resort),
+            scoringConfig: toScoringConfig(shadow),
+            modelVersionId: shadow.id,
+          });
+          if (shadowScore) {
+            await insertSnowScore(db, shadowScore, false);
+            scoresWritten += 1;
+          }
+        }
       } catch (err) {
         errors.push(`${resort.slug}/${targetDate}: ${(err as Error).message}`);
       }

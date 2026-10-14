@@ -5,6 +5,8 @@ export interface SlrInput {
   tmaxC: number;
   /** Per-resort calibration multiplier (resorts.slr_calibration_multiplier), default 1.0. */
   calibrationMultiplier: number;
+  /** Day's mean wind speed (km/h) across reporting models, when available — same figure run.ts already computes for display (avgWindSpeedKmh). Optional: existing strategies (kuchera, fixed-ratio) ignore it entirely; only kuchera-wind reads it. */
+  avgWindSpeedKmh?: number | null;
 }
 
 export interface SlrResult {

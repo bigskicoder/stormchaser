@@ -27,6 +27,7 @@ function fixture(overrides: Partial<SnowScore>): SnowScore {
     avg_cloud_cover_pct: null,
     wind_hold_probability: null,
     model_version_id: null,
+    is_primary: true,
     created_at: "2026-01-14T12:00:00Z",
     ...overrides,
   };

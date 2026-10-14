@@ -63,6 +63,22 @@ export const FIXED_SLR_RATIO = 12.0;
 /** Kuchera method threshold split point: 271.16 K (~-2.01°C / ~28.1°F). */
 export const KUCHERA_THRESHOLD_KELVIN = 271.16;
 
+/**
+ * kuchera-wind strategy (src/lib/scoring/slr/kuchera-wind.ts) — EXPERIMENTAL,
+ * built to generate real season-1 shadow-scoring comparison data, not a
+ * reproduction of Veals et al. 2025's actual fitted wind+temperature
+ * regression (that paper's own coefficients were never published in a form
+ * this codebase could verify — see README's "Flagged assumptions"). These
+ * two constants instead apply a conservative, literature-motivated
+ * DIRECTION on top of the existing Kuchera curve: higher wind -> denser,
+ * wind-packed/rimed snow -> lower SLR, a well-established qualitative
+ * relationship in snow science, not a precisely fitted one here.
+ */
+/** Fractional SLR-ratio reduction per km/h of mean daily wind speed. 0.003 = 0.3% per km/h (12% reduction at 40km/h, 24% at 80km/h) — a deliberately modest magnitude pending real backtest validation, not a derived coefficient. */
+export const WIND_SLR_ADJUSTMENT_PER_KMH = 0.003;
+/** Floor on the wind-adjustment factor — the ratio is never reduced below this fraction of its wind-free value, however extreme the wind input, so a data gap or an outlier gust can't zero out an otherwise-reasonable forecast. */
+export const WIND_SLR_ADJUSTMENT_FLOOR = 0.6;
+
 // ---------------------------------------------------------------------------
 // 5.4 Composite powder_score
 // ---------------------------------------------------------------------------

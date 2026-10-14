@@ -70,11 +70,15 @@ async function currentBestQualifyingScore(resortId: string): Promise<SnowScore |
 
   // The actual filtering/dedup (target_date >= today, latest-per-date)
   // happens in selectCurrentBestQualifyingScore, not this query, so that
-  // logic stays pure and testable.
+  // logic stays pure and testable. is_primary=true is NOT optional, though:
+  // a shadow model version's score (ROADMAP Phase B.2, parallel comparison)
+  // must never be able to trigger a real alert to real subscribers, however
+  // high it scores — only the production (active-version) score can.
   const { data, error } = await db
     .from("snow_scores")
     .select("*")
     .eq("resort_id", resortId)
+    .eq("is_primary", true)
     .gte("computed_at", since);
   if (error) throw error;
 

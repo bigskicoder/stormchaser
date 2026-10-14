@@ -78,10 +78,16 @@ export async function getUpcomingScoresForResort(resortId: string, timeZone: str
   const db = getAnonDb();
   const today = localTodayIso(timeZone);
 
+  // is_primary=true only: a scoring run can also write one or more shadow
+  // versions' scores for the same resort/date (ROADMAP Phase B.2, parallel
+  // model comparison) — those are comparison-only and must never surface
+  // on the public site, which this dedupe-to-latest-computed_at logic
+  // can't otherwise distinguish from the real production score.
   const { data, error } = await db
     .from("snow_scores")
     .select("*")
     .eq("resort_id", resortId)
+    .eq("is_primary", true)
     .gte("target_date", today)
     .order("target_date", { ascending: true })
     .order("computed_at", { ascending: false });

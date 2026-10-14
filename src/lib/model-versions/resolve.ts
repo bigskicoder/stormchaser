@@ -32,6 +32,14 @@ export async function listModelVersions(): Promise<ModelVersion[]> {
   return (data ?? []) as ModelVersion[];
 }
 
+/** Every version currently being scored in parallel alongside the active one — see lib/model-versions/shadow.ts. Never includes the active version itself (DB-enforced mutual exclusion). */
+export async function listShadowModelVersions(): Promise<ModelVersion[]> {
+  const db = getServiceDb();
+  const { data, error } = await db.from("model_versions").select("*").eq("is_shadow", true);
+  if (error) throw error;
+  return (data ?? []) as ModelVersion[];
+}
+
 /** The config + version id the live scoring pipeline should use right now. versionId is null only when no model_versions row has ever been activated (pre-baseline). */
 export async function getActiveScoringConfig(): Promise<{ config: ScoringConfig; versionId: string | null }> {
   const active = await getActiveModelVersion();

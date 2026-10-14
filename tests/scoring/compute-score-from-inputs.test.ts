@@ -191,6 +191,31 @@ describe("computeScoreFromInputs", () => {
     expect(withFixedRatio.estimatedSnowfallIn).not.toBeCloseTo(withDefaultStrategy.estimatedSnowfallIn, 2);
   });
 
+  it("kuchera-wind produces less snowfall than plain kuchera for the same windy, cold storm (wind threads through the full pipeline, not just the strategy's own unit tests)", () => {
+    const windyRows = coldDayRows("hrrr").map((r) => ({ ...r, wind_speed_kmh: 70 }));
+    const withKuchera = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: windyRows },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+    })!;
+    const withKucheraWind = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: windyRows },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+      scoringConfig: { ...DEFAULT_SCORING_CONFIG, slrStrategyName: "kuchera-wind" },
+    })!;
+    expect(withKucheraWind.estimatedSnowfallIn).toBeLessThan(withKuchera.estimatedSnowfallIn);
+    expect(withKucheraWind.slrStrategy).toBe("kuchera-wind");
+  });
+
   it("treats an empty ensemble as having no meaningful spread signal, without throwing", () => {
     // Documented behavior (see ScoreInputs' own doc comment): an empty
     // ensemble doesn't crash, but the resulting confidence figure isn't a

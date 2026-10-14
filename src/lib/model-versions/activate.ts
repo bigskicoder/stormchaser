@@ -44,9 +44,13 @@ export async function activateModelVersion(versionId: string, activatedBy: strin
     if (archiveError) throw archiveError;
   }
 
+  // is_shadow: false even if the target was mid-shadow-run — the DB's
+  // active/shadow mutual-exclusion check constraint would reject this
+  // update otherwise, and once active it's scored as the primary row every
+  // run regardless, so shadowing it too would be redundant anyway.
   const { data: activated, error: activateError } = await db
     .from("model_versions")
-    .update({ status: "active", activated_by: activatedBy, activated_at: new Date().toISOString() })
+    .update({ status: "active", activated_by: activatedBy, activated_at: new Date().toISOString(), is_shadow: false })
     .eq("id", versionId)
     .select()
     .single();

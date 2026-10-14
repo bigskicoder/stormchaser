@@ -36,43 +36,67 @@ function yesterdayIso(): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Logs one accuracy_log row PER MODEL VERSION present in the latest scoring
+ * run for this resort/date — not just the production score. A run can
+ * write a primary (active-version) row plus one row per shadow version
+ * (ROADMAP Phase B.2, "run multiple models parallel and compare" —
+ * requested directly); every one of them needs its own accuracy tracking,
+ * each against its OWN predicted snowfall and its OWN SLR ratio, or a
+ * shadow version would never accumulate the season-long accuracy_log data
+ * the comparison view (lib/model-versions/compare.ts) depends on.
+ */
 async function logPowderAlertAccuracy(
   resort: Resort,
   targetDateIso: string,
   actual: SnotelActual
-): Promise<"matched" | "skipped"> {
+): Promise<{ matched: number; skipped: number }> {
   const db = getServiceDb();
 
-  const { data: scoreData, error: scoreError } = await db
+  const { data: latestData, error: latestError } = await db
     .from("snow_scores")
-    .select("*")
+    .select("computed_at")
     .eq("resort_id", resort.id)
     .eq("target_date", targetDateIso)
     .order("computed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (scoreError) throw scoreError;
-  const score = scoreData as SnowScore | null;
-  if (!score || actual.observed_swe_mm == null) return "skipped";
+  if (latestError) throw latestError;
+  if (!latestData || actual.observed_swe_mm == null) return { matched: 0, skipped: 1 };
 
-  const observedEquivalentIn = score.is_rain_case ? 0 : (actual.observed_swe_mm * score.snow_to_liquid_ratio) / 25.4;
-  const accuracyErrorIn = score.estimated_snowfall_in - observedEquivalentIn;
+  const { data: scoresData, error: scoresError } = await db
+    .from("snow_scores")
+    .select("*")
+    .eq("resort_id", resort.id)
+    .eq("target_date", targetDateIso)
+    .eq("computed_at", latestData.computed_at as string);
+  if (scoresError) throw scoresError;
+  const scores = (scoresData ?? []) as SnowScore[];
 
-  const { error: upsertError } = await db.from("accuracy_log").upsert(
-    {
-      resort_id: resort.id,
-      snow_score_id: score.id,
-      target_date: targetDateIso,
-      predicted_snowfall_in: score.estimated_snowfall_in,
-      observed_equivalent_in: observedEquivalentIn,
-      accuracy_error_in: accuracyErrorIn,
-      lead_time_hours_at_prediction: score.lead_time_hours,
-      source: "powder_alert",
-    },
-    { onConflict: "resort_id,target_date,lead_time_hours_at_prediction,source" }
-  );
-  if (upsertError) throw upsertError;
-  return "matched";
+  let matched = 0;
+  for (const score of scores) {
+    const observedEquivalentIn = score.is_rain_case ? 0 : (actual.observed_swe_mm * score.snow_to_liquid_ratio) / 25.4;
+    const accuracyErrorIn = score.estimated_snowfall_in - observedEquivalentIn;
+
+    const { error: upsertError } = await db.from("accuracy_log").upsert(
+      {
+        resort_id: resort.id,
+        snow_score_id: score.id,
+        target_date: targetDateIso,
+        predicted_snowfall_in: score.estimated_snowfall_in,
+        observed_equivalent_in: observedEquivalentIn,
+        accuracy_error_in: accuracyErrorIn,
+        lead_time_hours_at_prediction: score.lead_time_hours,
+        source: "powder_alert",
+        model_version_id: score.model_version_id,
+        is_primary: score.is_primary,
+      },
+      { onConflict: "resort_id,target_date,lead_time_hours_at_prediction,source,model_version_id" }
+    );
+    if (upsertError) throw upsertError;
+    matched += 1;
+  }
+  return { matched, skipped: 0 };
 }
 
 async function logNwsBenchmarkAccuracy(
@@ -152,8 +176,8 @@ export async function runBacktestForDate(targetDateIso: string = yesterdayIso())
 
       const powderAlertResult = await logPowderAlertAccuracy(resort, targetDateIso, actual);
       const nwsResult = await logNwsBenchmarkAccuracy(resort, targetDateIso, actual);
-      matched += [powderAlertResult, nwsResult].filter((r) => r === "matched").length;
-      skipped += [powderAlertResult, nwsResult].filter((r) => r === "skipped").length;
+      matched += powderAlertResult.matched + (nwsResult === "matched" ? 1 : 0);
+      skipped += powderAlertResult.skipped + (nwsResult === "skipped" ? 1 : 0);
     } catch (err) {
       errors.push(`${resort.slug}: ${(err as Error).message}`);
     }
@@ -175,9 +199,16 @@ const HIT_TOLERANCE_IN = 2;
 
 export async function getAccuracySummary(): Promise<AccuracySummary[]> {
   const db = getServiceDb();
+  // is_primary=true: NWS and backtest-script rows are always true (shadow
+  // scoring doesn't touch them), so this only actually excludes a shadow
+  // model version's live powder_alert rows — without it, an experimental
+  // version's accuracy would blend into "how is our production forecast
+  // doing," which is exactly the number this report exists to answer
+  // honestly. Per-version comparison lives at lib/model-versions/compare.ts.
   const { data, error } = await db
     .from("accuracy_log")
     .select("resort_id, source, accuracy_error_in, resorts(name)")
+    .eq("is_primary", true)
     .not("accuracy_error_in", "is", null);
   if (error) throw error;
 
