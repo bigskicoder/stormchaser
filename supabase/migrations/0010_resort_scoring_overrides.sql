@@ -1,0 +1,28 @@
+-- Per-resort model precision, requested directly: "I want the model to be
+-- as precise as possible so code the individual resorts." Until now, every
+-- field in a model_versions row (which weather models to trust at which
+-- lead time, which SLR strategy, confidence thresholds, ...) applied
+-- uniformly to every resort scored under that version — the ONE exception
+-- was resort_slr_multipliers (0007), a single scalar per resort. Real
+-- numerical-weather-model skill varies by terrain/climate regime (e.g.
+-- convection-allowing models like HRRR tend to earn their keep in complex
+-- orographic terrain and add less in coastal/marine settings where
+-- large-scale forcing dominates), and different snow climates ("Cascade
+-- concrete" vs. Utah's low-density powder vs. Northeast coastal snow) are
+-- plausibly different enough that even the SLR strategy choice shouldn't
+-- be forced identical across the whole roster.
+--
+-- resort_scoring_overrides generalizes the resort_slr_multipliers pattern
+-- to the rest of the scoring config: resort_id -> a PARTIAL ScoringConfig
+-- (any subset of model_weights_by_bucket / slr_strategy_name / thresholds /
+-- weights — see lib/scoring/config.ts's resolveScoringConfigForResort).
+-- Any field a resort doesn't set here falls back to that SAME model
+-- version's own global field, not to the compiled-in defaults.
+--
+-- Defaults to '{}' for every version, including retroactively for every
+-- version created before this migration: no resort is differentiated until
+-- a human deliberately sets an override for it. This is a capability, not
+-- 51 fabricated per-resort configs invented without real evidence —
+-- consistent with this project's standing rule to never present a guess as
+-- a verified figure.
+alter table model_versions add column if not exists resort_scoring_overrides jsonb not null default '{}';

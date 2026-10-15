@@ -32,9 +32,9 @@
 
 import { getServiceDb } from "../src/lib/db/client";
 import { runSlrReanalysisBacktestForResort } from "../src/lib/backtest/slr-reanalysis";
-import { getActiveScoringConfig, getModelVersionById } from "../src/lib/model-versions/resolve";
-import { toScoringConfig } from "../src/lib/scoring/config";
-import type { Resort, SlrStrategyName } from "../src/lib/db/types";
+import { getActiveModelVersion, getModelVersionById } from "../src/lib/model-versions/resolve";
+import { resolveScoringConfigForResort } from "../src/lib/scoring/config";
+import type { ModelVersion, Resort } from "../src/lib/db/types";
 
 const DEFAULT_YEARS_BACK = 10;
 
@@ -84,29 +84,25 @@ async function main() {
   // draft/archived row, so its snapshot — not today's live value — is what
   // gets backtested.
   let resortMultipliers: Record<string, number> | null = null;
-  let resolvedVersionId: string | null;
-  let slrStrategyName: SlrStrategyName | undefined;
+  let version: ModelVersion | null;
 
   if (versionId) {
-    const version = await getModelVersionById(versionId);
+    version = await getModelVersionById(versionId);
     if (!version) {
       console.error(`No model version found with id "${versionId}".`);
       process.exit(1);
     }
-    resolvedVersionId = version.id;
-    slrStrategyName = toScoringConfig(version).slrStrategyName;
     resortMultipliers = version.resort_slr_multipliers;
     console.log(`Running under model version "${version.name}" (${version.id}, status=${version.status}).`);
   } else {
-    const active = await getActiveScoringConfig();
-    resolvedVersionId = active.versionId;
-    slrStrategyName = active.config.slrStrategyName;
+    version = await getActiveModelVersion();
     console.log(
-      resolvedVersionId
-        ? `Running under the currently active model version (${resolvedVersionId}).`
+      version
+        ? `Running under the currently active model version (${version.id}).`
         : "No active model version yet — running under compiled-in defaults (run seed:resorts to create a baseline)."
     );
   }
+  const resolvedVersionId = version?.id ?? null;
 
   console.log(`Running SLR reanalysis backtest for ${resorts.length} resort(s), ${startDate} to ${endDate} (~${years} years)...`);
 
@@ -115,6 +111,10 @@ async function main() {
   const failures: string[] = [];
 
   for (const resort of resorts) {
+    // Resolved PER RESORT (ROADMAP Phase B.3) — a resort with its own
+    // slr_strategy_name set in this version's resort_scoring_overrides gets
+    // backtested under that strategy, not the version's global one.
+    const slrStrategyName = version ? resolveScoringConfigForResort(version, resort.id).slrStrategyName : undefined;
     const summary = await runSlrReanalysisBacktestForResort(resort, startDate, endDate, {
       slrStrategyName,
       calibrationMultiplier: resortMultipliers?.[resort.id],

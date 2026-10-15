@@ -12,13 +12,22 @@ import { useRouter } from "next/navigation";
  * types and the API route (api/admin/model-versions/route.ts) already
  * validates with zod before anything is persisted — a malformed edit is
  * rejected server-side, not silently accepted.
+ *
+ * The second textarea (resort overrides, ROADMAP Phase B.3) is the same
+ * scope call applied to resort_scoring_overrides: a raw JSON map of
+ * resort_id -> partial config, not 51 resorts' worth of per-field inputs.
+ * Pre-filled from the source version's own snapshot (unchanged = every
+ * resort still inherits the global config above) and independently
+ * optional — leaving it as "{}" is the common case.
  */
 export function ModelVersionCreateForm({
   defaultConfigJson,
+  defaultResortOverridesJson,
   sourceVersionId,
   sourceVersionName,
 }: {
   defaultConfigJson: string;
+  defaultResortOverridesJson: string;
   sourceVersionId: string;
   sourceVersionName: string;
 }) {
@@ -27,6 +36,7 @@ export function ModelVersionCreateForm({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [configJson, setConfigJson] = useState(defaultConfigJson);
+  const [resortOverridesJson, setResortOverridesJson] = useState(defaultResortOverridesJson);
   const [state, setState] = useState<"idle" | "submitting" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
@@ -44,11 +54,20 @@ export function ModelVersionCreateForm({
       return;
     }
 
+    let resortScoringOverrides: unknown;
+    try {
+      resortScoringOverrides = JSON.parse(resortOverridesJson);
+    } catch {
+      setState("error");
+      setMessage("Per-resort overrides isn't valid JSON.");
+      return;
+    }
+
     try {
       const res = await fetch("/api/admin/model-versions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, description: description || undefined, config, sourceVersionId }),
+        body: JSON.stringify({ name, description: description || undefined, config, resortScoringOverrides, sourceVersionId }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "request failed");
@@ -105,6 +124,19 @@ export function ModelVersionCreateForm({
           value={configJson}
           onChange={(e) => setConfigJson(e.target.value)}
           rows={14}
+          style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
+        />
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>
+          Per-resort overrides (JSON, advanced &mdash; optional. Maps resort_id to a PARTIAL config; any field left
+          out for a resort falls back to the global config above, not to the compiled-in defaults)
+        </label>
+        <textarea
+          required
+          value={resortOverridesJson}
+          onChange={(e) => setResortOverridesJson(e.target.value)}
+          rows={6}
           style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
         />
       </div>

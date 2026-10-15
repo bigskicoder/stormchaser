@@ -18,14 +18,22 @@ export interface ModelVersionAccuracySummary {
 
 const HIT_TOLERANCE_IN = 2;
 
-export async function compareModelVersions(versionIds: string[]): Promise<ModelVersionAccuracySummary[]> {
+/**
+ * resortId (ROADMAP Phase B.3) narrows the comparison to one resort's own
+ * accuracy_log rows — lets an admin check whether a resort-specific
+ * override is actually helping THAT resort, not just the all-resorts
+ * blend. Omit for the original all-resorts aggregate.
+ */
+export async function compareModelVersions(versionIds: string[], resortId?: string): Promise<ModelVersionAccuracySummary[]> {
   if (versionIds.length === 0) return [];
   const db = getServiceDb();
-  const { data, error } = await db
+  let query = db
     .from("accuracy_log")
     .select("model_version_id, accuracy_error_in")
     .in("model_version_id", versionIds)
     .not("accuracy_error_in", "is", null);
+  if (resortId) query = query.eq("resort_id", resortId);
+  const { data, error } = await query;
   if (error) throw error;
 
   const errorsByVersion = new Map<string, number[]>();

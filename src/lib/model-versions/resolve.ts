@@ -1,15 +1,15 @@
 /**
- * Read side of model versioning (ROADMAP Phase C). getActiveScoringConfig
- * is what lib/scoring/run.ts calls on every live scoring run — if no
- * active model_versions row exists yet (a fresh deploy, before the
- * baseline has been seeded), it falls back to DEFAULT_SCORING_CONFIG
- * (lib/scoring/config.ts, itself built from lib/config/constants.ts) so
- * live scoring never breaks for lack of a DB row.
+ * Read side of model versioning (ROADMAP Phase C). getActiveModelVersion is
+ * what lib/scoring/run.ts and both backtest scripts resolve once per run,
+ * then pass into lib/scoring/config.ts's resolveScoringConfigForResort
+ * (ROADMAP Phase B.3) to get each resort's own effective config — null
+ * only when no model_versions row has ever been activated yet (a fresh
+ * deploy, before the baseline has been seeded), in which case those callers
+ * fall back to DEFAULT_SCORING_CONFIG themselves.
  */
 
 import { getServiceDb } from "@/lib/db/client";
 import type { ModelVersion } from "@/lib/db/types";
-import { DEFAULT_SCORING_CONFIG, toScoringConfig, type ScoringConfig } from "@/lib/scoring/config";
 
 export async function getActiveModelVersion(): Promise<ModelVersion | null> {
   const db = getServiceDb();
@@ -38,11 +38,4 @@ export async function listShadowModelVersions(): Promise<ModelVersion[]> {
   const { data, error } = await db.from("model_versions").select("*").eq("is_shadow", true);
   if (error) throw error;
   return (data ?? []) as ModelVersion[];
-}
-
-/** The config + version id the live scoring pipeline should use right now. versionId is null only when no model_versions row has ever been activated (pre-baseline). */
-export async function getActiveScoringConfig(): Promise<{ config: ScoringConfig; versionId: string | null }> {
-  const active = await getActiveModelVersion();
-  if (!active) return { config: DEFAULT_SCORING_CONFIG, versionId: null };
-  return { config: toScoringConfig(active), versionId: active.id };
 }

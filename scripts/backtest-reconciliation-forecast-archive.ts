@@ -32,9 +32,9 @@
 
 import { getServiceDb } from "../src/lib/db/client";
 import { runReconciliationBacktestForResort } from "../src/lib/backtest/reconciliation-forecast-archive";
-import { getActiveScoringConfig, getModelVersionById } from "../src/lib/model-versions/resolve";
-import { toScoringConfig, type ScoringConfig } from "../src/lib/scoring/config";
-import type { Resort } from "../src/lib/db/types";
+import { getActiveModelVersion, getModelVersionById } from "../src/lib/model-versions/resolve";
+import { resolveScoringConfigForResort } from "../src/lib/scoring/config";
+import type { ModelVersion, Resort } from "../src/lib/db/types";
 
 const DEFAULT_YEARS_BACK = 4;
 
@@ -78,29 +78,25 @@ async function main() {
   // then falls through to each resort's own live slr_calibration_multiplier).
   // Only set when --version pins a specific draft/archived row.
   let resortMultipliers: Record<string, number> | null = null;
-  let resolvedVersionId: string | null;
-  let scoringConfig: ScoringConfig | undefined;
+  let version: ModelVersion | null;
 
   if (versionId) {
-    const version = await getModelVersionById(versionId);
+    version = await getModelVersionById(versionId);
     if (!version) {
       console.error(`No model version found with id "${versionId}".`);
       process.exit(1);
     }
-    resolvedVersionId = version.id;
-    scoringConfig = toScoringConfig(version);
     resortMultipliers = version.resort_slr_multipliers;
     console.log(`Running under model version "${version.name}" (${version.id}, status=${version.status}).`);
   } else {
-    const active = await getActiveScoringConfig();
-    resolvedVersionId = active.versionId;
-    scoringConfig = active.config;
+    version = await getActiveModelVersion();
     console.log(
-      resolvedVersionId
-        ? `Running under the currently active model version (${resolvedVersionId}).`
+      version
+        ? `Running under the currently active model version (${version.id}).`
         : "No active model version yet — running under compiled-in defaults (run seed:resorts to create a baseline)."
     );
   }
+  const resolvedVersionId = version?.id ?? null;
 
   console.log(`Running reconciliation forecast-archive backtest for ${resorts.length} resort(s), ${startDate} to ${endDate} (~${years} years)...`);
   console.log("Note: the archive doesn't cover this full range for every model (varies ~2021-2022 onward) — per-model failures for the earliest dates are expected and reported per resort below, not fatal to the run.\n");
@@ -110,6 +106,11 @@ async function main() {
   const failures: string[] = [];
 
   for (const resort of resorts) {
+    // Resolved PER RESORT (ROADMAP Phase B.3) — a resort with its own
+    // overrides in this version's resort_scoring_overrides (model weights,
+    // SLR strategy, ...) gets backtested under them, not the version's
+    // global config.
+    const scoringConfig = version ? resolveScoringConfigForResort(version, resort.id) : undefined;
     const summary = await runReconciliationBacktestForResort(resort, startDate, endDate, {
       scoringConfig,
       calibrationMultiplier: resortMultipliers?.[resort.id],

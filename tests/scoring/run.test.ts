@@ -76,6 +76,7 @@ function modelVersion(overrides: Partial<ModelVersion> = {}): ModelVersion {
     actionable_window_hours: { min: 24, max: 96 },
     lead_time_fit_decay_per_hour: 0.01,
     resort_slr_multipliers: {},
+    resort_scoring_overrides: {},
     parent_version_id: null,
     created_by: "test",
     activated_by: null,

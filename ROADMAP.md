@@ -26,10 +26,11 @@ links back here for status.
 | B | Self-tuning SLR calibration | 🔶 Mechanism + 2 historical backtest pipelines built | Needs Phase 0, then just `npm run backtest:*` |
 | B.1 | Model versioning (save/compare/roll back) | ✅ Built | Done — `/admin/model-versions` |
 | B.2 | Parallel model scoring ("shadow mode") | ✅ Built, dormant until a draft is shadowed | **You** — create a `kuchera-wind` draft and toggle shadowing |
+| B.3 | Per-resort model precision | ✅ Built, dormant until a resort is differentiated | **You** — set a per-resort override from `/admin/model-versions` |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 | D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
 
-**Test/build state as of this update**: 176/176 unit tests passing, clean
+**Test/build state as of this update**: 185/185 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -522,6 +523,145 @@ are comparison-only data, never a live input. No limit on how many
 versions can shadow at once, but also no UI warning if you shadow so many
 that `/admin/model-versions`'s compare view gets hard to read — a
 reasonable follow-up if a season ever actually produces that problem.
+
+---
+
+## Phase B.3 — Per-resort model precision
+
+**Status: ✅ built, dormant until you differentiate a resort.**
+`supabase/migrations/0010_resort_scoring_overrides.sql`,
+`resolveScoringConfigForResort` + `partialScoringConfigToResortOverride`
+in `lib/scoring/config.ts`, an optional `resortId` filter on
+`compareModelVersions`. 14 new unit tests (11 for
+`resolveScoringConfigForResort`'s merge semantics, 3 for the camelCase ->
+snake_case converter the admin API route uses).
+
+Requested directly, immediately after a design discussion about whether
+model weighting should vary by resort at all: *"I want the model to be as
+precise as possible so code the individual resorts I don't mind the
+additional computational load up front."* The discussion itself is worth
+recording because it shaped the scope: real numerical-weather-model skill
+varies by terrain/climate regime (convection-allowing models like HRRR
+tend to earn their keep in complex orographic terrain and add less in
+coastal/marine settings where large-scale forcing dominates), and
+different snow climates ("Cascade concrete" vs. Utah's low-density powder
+vs. Northeast coastal snow) are plausibly different enough that even SLR
+strategy choice shouldn't be forced identical across the whole roster —
+but the honest answer on "how advantageous" also flagged a real cost:
+granularity fights sample size, and 51 independently-tunable resorts
+divides `accuracy_log` history 51 ways. The user's call, explicitly: go
+all the way to per-resort anyway, computational cost accepted. (In
+practice the computational cost turned out to be close to zero — see
+below — so this wasn't actually a tradeoff, just a correct call either
+way.)
+
+**What was already per-resort vs. what wasn't, precisely** (this was
+checked against the actual code before building anything, not assumed):
+exactly one field was already per-resort — `resorts.slr_calibration_multiplier`,
+a single scalar (Phase B/B.1). Every other field in a model version's
+`ScoringConfig` — `modelWeightsByBucket` (which weather models to trust
+at which lead time), `slrStrategyName`, confidence thresholds,
+powder-score weights — applied uniformly to all ~51 resorts under that
+version. This phase generalizes the existing per-resort-multiplier
+*pattern* to the rest of the config, rather than inventing a new one.
+
+**The mechanism**: `model_versions.resort_scoring_overrides` is a
+`resort_id -> PARTIAL ScoringConfig` map (`ResortScoringOverride` in
+`lib/db/types.ts` — every field optional). `resolveScoringConfigForResort(version,
+resortId)` starts from that version's own global config
+(`toScoringConfig(version)`, NOT `DEFAULT_SCORING_CONFIG`) and overlays
+only the fields the resort's override actually sets, field by field — a
+resort that overrides just `slrStrategyName` still gets that version's
+own `modelWeightsByBucket`, not a reset to compiled-in defaults. A resort
+absent from the map (the default state for every resort on every new
+version, including the baseline) resolves to exactly that version's
+global config — this function is a pure superset of `toScoringConfig`,
+never a behavior change until a human deliberately differentiates a
+resort.
+
+**Wired into every place a version's config gets used, not just live
+scoring** — this was the main implementation risk, since the project
+already has four separate call sites that each independently resolve "the
+config for this version," and missing one would have made per-resort
+precision silently partial:
+- `lib/scoring/run.ts`: `runScoringForAllResorts` (the live cron) now
+  resolves the active `ModelVersion` row once, then calls
+  `resolveScoringConfigForResort` INSIDE the per-resort loop for both the
+  primary score and every shadow version's score — same "fetch shared
+  inputs once, resolve config per resort" shape the Phase B.2 work
+  already established, just one more axis of per-resort resolution
+  layered on top. `computeScoreForResortDay` (the single-resort wrapper)
+  got the identical fix for consistency, even though nothing currently
+  calls it over the batch path.
+- Both historical backtest scripts (`scripts/backtest-slr-reanalysis.ts`,
+  `scripts/backtest-reconciliation-forecast-archive.ts`) resolve the
+  target `ModelVersion` once (active or `--version=<id>`), then compute
+  each resort's effective `slrStrategyName`/`scoringConfig` INSIDE their
+  own existing per-resort loops — so backtesting a draft under
+  `--version` now honors that draft's per-resort overrides too, not just
+  its global config.
+- `getActiveScoringConfig()` (the old global-only resolver) is deleted,
+  not deprecated — once every caller needed per-resort resolution, a
+  resort-oblivious version of the same lookup had no remaining callers
+  and no reason to keep existing as a trap for a future caller to use by
+  mistake. `getActiveModelVersion()` (already existed) plus
+  `resolveScoringConfigForResort` replace it everywhere.
+
+**On "additional computational load"**: resolving a config per resort
+turned out to be a cheap in-memory object merge, not a new source of
+ingestion reads or DB round trips — `resolveScoringConfigForResort` takes
+the already-fetched `ModelVersion` row (fetched once per run, same as
+before this phase) and a resort id, and returns a plain object. The real
+cost of parallel per-resort precision was already paid by Phase B.2's
+shared-inputs design (fetch each resort/date's forecast data once, reuse
+across every version scored against it) — this phase rides on top of
+that for free. The only thing that scales with how many resorts get
+differentiated is how many *distinct* config shapes exist in memory
+briefly during a run, not how much work gets done.
+
+**Admin UI** (`/admin/model-versions`): the new-draft form gained a
+second, optional JSON textarea — "Per-resort overrides" — pre-filled from
+the source version's own snapshot (empty object = the common case), same
+deliberate "raw JSON, not N resorts' worth of individual inputs" scope
+call already made for the main config textarea (Phase B.1). Validated
+server-side with the same `scoringConfigSchema` made `.partial()`, so a
+malformed per-resort edit is rejected, not silently accepted. Unlike
+`resort_slr_multipliers` (always cloned server-side, never request-
+settable — that field stays governed by the calibration-recommendation
+flow), `resort_scoring_overrides` CAN be set directly from this form:
+there's no competing dedicated approval flow for it yet, so this form is
+the one place to set it. The comparison view gained an optional resort
+filter (a `<select>`, GET param, bookmarkable like the rest of that
+view) backed by a new optional `resortId` parameter on
+`compareModelVersions` — lets you check whether an override is actually
+helping the resort it targets, not just the all-resorts blend, which is
+the whole point of being able to set one.
+
+**Verified**: a temporary `/preview-model-version-overrides` fixture
+route (two fixture versions, one with a populated `resort_scoring_overrides`
+map, three fixture resorts) rendered the real components —
+`ModelVersionCreateForm` with the new textarea pre-filled, the resort
+filter `<select>`, and the comparison table actually swapping between a
+fixture "all resorts" summary and a fixture "Alta only" summary when the
+`resortId` query param changed — screenshotted via Playwright at both
+states. Confirmed the filter mechanism end-to-end at the UI layer before
+trusting the real DB-backed query to do the same. Removed before commit,
+`git status` confirmed clean, same discipline as every other preview
+route this project has used.
+
+**What this deliberately doesn't do**: ships zero fabricated per-resort
+differentiation — every version's `resort_scoring_overrides` defaults to
+`{}` for every resort, including retroactively for every version that
+existed before this migration. This is a capability, not 51 invented
+configs; the project's standing rule against presenting a guess as a
+verified figure applies here exactly as it did to `kuchera-wind`'s
+constants. No bulk/guided way to set many resorts' overrides at once
+(e.g. "cluster the roster into climate regions and set them together") —
+each resort's override is edited individually in the raw-JSON textarea;
+a clustering UI is a reasonable follow-up if the roster's real accuracy
+data ever suggests specific regional groupings worth codifying, but
+inventing those groupings now, without evidence, is exactly the kind of
+guess this project avoids.
 
 ---
 
@@ -1166,6 +1306,39 @@ to re-read the original primer to know what's accounted for.
   new UI column via a temporary `/preview-shadow-column` fixture route
   and `playwright-core` screenshots of all three toggle states, removed
   before commit. 13 new tests (176 total), clean typecheck, clean build.
+- **2026-10-15** — Built per-resort model precision (Phase B.3), after a
+  design discussion on whether model weighting should vary by resort:
+  *"I want the model to be as precise as possible so code the individual
+  resorts I don't mind the additional computational load up front."*
+  Added `model_versions.resort_scoring_overrides` (migration `0010`), a
+  `resort_id -> partial ScoringConfig` map generalizing the existing
+  per-resort SLR-multiplier pattern to the rest of the scoring config
+  (model weights by lead-time bucket, SLR strategy, thresholds, weights —
+  everything that was previously uniform across all ~51 resorts under a
+  version). `resolveScoringConfigForResort` merges a resort's override
+  onto that SAME version's own global config field-by-field, never onto
+  the compiled-in defaults, so an un-differentiated resort (the default
+  for every resort on every version) is behaviorally identical to before
+  this phase. Wired into every call site that resolves a version's config
+  — the live cron, both historical backtest scripts, and shadow scoring —
+  not just the obvious one, since missing any would have made precision
+  silently partial; deleted the now-callerless `getActiveScoringConfig()`
+  rather than leave it as a resort-oblivious trap. The "additional
+  computational load" the user explicitly accepted turned out to be
+  close to zero in practice — resolving a config per resort is a cheap
+  in-memory merge over an already-fetched row, riding for free on Phase
+  B.2's existing shared-inputs design. Added a second, optional JSON
+  textarea to the admin create-draft form (same deliberate raw-JSON scope
+  call as the main config) and a resort filter on the comparison view, so
+  an override's actual effect on its target resort is checkable, not just
+  the all-resorts blend. Ships zero fabricated differentiation — every
+  resort defaults to inheriting the global config until a human sets an
+  override, consistent with this project's standing rule against
+  presenting a guess as a verified figure. Verified the new UI via a
+  temporary `/preview-model-version-overrides` fixture route and
+  `playwright-core` screenshots (default state, create-form open, and the
+  resort filter actually swapping comparison numbers), removed before
+  commit. 14 new tests (185 total), clean typecheck, clean build.
 
 ---
 
@@ -1187,12 +1360,17 @@ back. → Phase B.2 needs exactly one action from you, whenever you want to
 start the season-long comparison: create a `kuchera-wind` draft from
 `/admin/model-versions` and toggle "Start shadowing" — everything else
 (parallel scoring every cron run, per-version accuracy logging, the
-compare view) is already live and needs nothing further. → Phase B's
-broader constants (alert threshold, score weights) only after the
-per-resort SLR case has run a full cycle and you're comfortable with it —
-if you do eventually want to tune one of those, do it as a draft model
-version first and backtest under it before activating, same discipline
-as everything else in Phase B. Phase D ran independently of all of this
-and its first pass is done — a decided product name is the only real
-blocker left for a final polish pass (swapping "powder-alert" for the
-real name/logo).
+compare view) is already live and needs nothing further. → Phase B.3 is
+best left alone until Phase B.2's comparison data gives you a real reason
+to differentiate a specific resort — the engine is ready whenever that
+day comes (a per-resort override on any draft, via the same new-draft
+form's second textarea), but setting one before you have resort-specific
+accuracy data to act on would be exactly the kind of unevidenced guess
+this project has avoided everywhere else. → Phase B's broader constants
+(alert threshold, score weights) only after the per-resort SLR case has
+run a full cycle and you're comfortable with it — if you do eventually
+want to tune one of those, do it as a draft model version first and
+backtest under it before activating, same discipline as everything else
+in Phase B. Phase D ran independently of all of this and its first pass
+is done — a decided product name is the only real blocker left for a
+final polish pass (swapping "powder-alert" for the real name/logo).

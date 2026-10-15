@@ -3,6 +3,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { ModelVersionActivateButton } from "@/components/model-version-activate-button";
 import { ModelVersionCreateForm } from "@/components/model-version-create-form";
 import { ModelVersionShadowToggle } from "@/components/model-version-shadow-toggle";
+import { getServiceDb } from "@/lib/db/client";
+import type { Resort } from "@/lib/db/types";
 import { createBaselineVersionIfNoneExists } from "@/lib/model-versions/create";
 import { listModelVersions } from "@/lib/model-versions/resolve";
 import { compareModelVersions } from "@/lib/model-versions/compare";
@@ -16,26 +18,35 @@ function toCompareIds(raw: string | string[] | undefined): string[] {
   return Array.from(new Set(list.filter(Boolean)));
 }
 
+/** Name/slug only — enough for the comparison view's resort filter (ROADMAP Phase B.3), not a full Resort fetch. */
+async function listResortNamesForFilter(): Promise<Array<Pick<Resort, "id" | "name" | "slug">>> {
+  const db = getServiceDb();
+  const { data, error } = await db.from("resorts").select("id, name, slug").eq("active", true).order("name");
+  if (error) throw error;
+  return (data ?? []) as Array<Pick<Resort, "id" | "name" | "slug">>;
+}
+
 export default async function AdminModelVersionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ compare?: string | string[]; duplicateFrom?: string }>;
+  searchParams: Promise<{ compare?: string | string[]; duplicateFrom?: string; resortId?: string }>;
 }) {
   const params = await searchParams;
   const compareIds = toCompareIds(params.compare);
+  const resortFilter = params.resortId || undefined;
 
   // Sequential, not Promise.all — listModelVersions() must run AFTER the
   // baseline is guaranteed to exist, or a brand-new deploy's very first
   // page load could race: list resolves with zero rows while the baseline
   // insert is still in flight.
   await createBaselineVersionIfNoneExists();
-  const versions = await listModelVersions();
+  const [versions, resorts] = await Promise.all([listModelVersions(), listResortNamesForFilter()]);
   const versionsById = new Map(versions.map((v) => [v.id, v]));
 
   const activeVersion = versions.find((v) => v.status === "active");
   const duplicateFromVersion = (params.duplicateFrom && versionsById.get(params.duplicateFrom)) ?? activeVersion;
 
-  const comparisonSummaries = compareIds.length > 0 ? await compareModelVersions(compareIds) : [];
+  const comparisonSummaries = compareIds.length > 0 ? await compareModelVersions(compareIds, resortFilter) : [];
 
   return (
     <>
@@ -53,10 +64,18 @@ export default async function AdminModelVersionsPage({
         never shown on the public site, never alert-triggering. Compare it against the active version below once
         samples accumulate, the same way as any other comparison.
       </p>
+      <p style={{ color: "var(--text-muted)" }}>
+        <strong>Per-resort precision (Phase B.3)</strong>: every field above applies to every resort uniformly
+        unless a resort has its own override saved in a version&rsquo;s &ldquo;per-resort overrides&rdquo; field
+        below &mdash; a resort with no override simply inherits this version&rsquo;s global config unchanged.
+        Filter the comparison below to one resort to check whether an override is actually helping that resort
+        specifically, not just the all-resorts blend.
+      </p>
 
       {duplicateFromVersion && (
         <ModelVersionCreateForm
           defaultConfigJson={JSON.stringify(toScoringConfig(duplicateFromVersion), null, 2)}
+          defaultResortOverridesJson={JSON.stringify(duplicateFromVersion.resort_scoring_overrides, null, 2)}
           sourceVersionId={duplicateFromVersion.id}
           sourceVersionName={duplicateFromVersion.name}
         />
@@ -118,21 +137,41 @@ export default async function AdminModelVersionsPage({
             ))}
           </tbody>
         </table>
-        <button
-          type="submit"
-          style={{ marginTop: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", cursor: "pointer" }}
-        >
-          Compare selected
-        </button>
+        <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            type="submit"
+            style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", cursor: "pointer" }}
+          >
+            Compare selected
+          </button>
+          <label style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+            Resort (Phase B.3)
+            <select
+              name="resortId"
+              defaultValue={resortFilter ?? ""}
+              style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+            >
+              <option value="">All resorts (blended)</option>
+              {resorts.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </form>
 
       {compareIds.length > 0 && (
         <>
-          <h3 style={{ fontSize: 16, marginTop: 32 }}>Comparison</h3>
+          <h3 style={{ fontSize: 16, marginTop: 32 }}>
+            Comparison{resortFilter ? ` — ${resorts.find((r) => r.id === resortFilter)?.name ?? resortFilter}` : " — all resorts"}
+          </h3>
           <p style={{ color: "var(--text-muted)" }}>
             Read-only aggregation over accuracy_log rows already tagged with each version&rsquo;s id (live scoring
             plus the backtest scripts) &mdash; not a live re-run. Zero samples means this version has never been
-            active or backtested under; run <code>npm run backtest:slr-reanalysis -- --version=&lt;id&gt;</code> or{" "}
+            active or backtested under (for this resort, if filtered); run{" "}
+            <code>npm run backtest:slr-reanalysis -- --version=&lt;id&gt;</code> or{" "}
             <code>npm run backtest:reconciliation -- --version=&lt;id&gt;</code> to generate comparison data for a
             draft before activating it.
           </p>

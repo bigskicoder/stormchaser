@@ -1,5 +1,5 @@
 import { getServiceDb } from "@/lib/db/client";
-import type { ModelVersion, Resort } from "@/lib/db/types";
+import type { ModelVersion, ResortScoringOverride, Resort } from "@/lib/db/types";
 import { DEFAULT_SCORING_CONFIG, scoringConfigToVersionFields, type ScoringConfig } from "@/lib/scoring/config";
 import { getActiveModelVersion } from "./resolve";
 
@@ -9,6 +9,8 @@ export interface CreateModelVersionParams {
   config: ScoringConfig;
   /** resort_id -> slr_calibration_multiplier snapshot. Pass the live current values when snapshotting "now"; pass an edited copy when proposing a change to one or more resorts. */
   resortSlrMultipliers: Record<string, number>;
+  /** resort_id -> partial scoring-config override snapshot (ROADMAP Phase B.3). Defaults to {} — no resort differs from this version's own global config unless explicitly set. */
+  resortScoringOverrides?: Record<string, ResortScoringOverride>;
   parentVersionId?: string | null;
   createdBy: string;
   status?: "draft" | "active" | "archived";
@@ -25,6 +27,7 @@ export async function createModelVersion(params: CreateModelVersionParams): Prom
       status,
       ...scoringConfigToVersionFields(params.config),
       resort_slr_multipliers: params.resortSlrMultipliers,
+      resort_scoring_overrides: params.resortScoringOverrides ?? {},
       parent_version_id: params.parentVersionId ?? null,
       created_by: params.createdBy,
       activated_by: status === "active" ? params.createdBy : null,
@@ -55,8 +58,8 @@ async function currentResortMultipliers(): Promise<Record<string, number>> {
  * hardcoded defaults (lib/scoring/config.ts) and every resort's current
  * (live) SLR multiplier — the starting point every later version's
  * lineage traces back to. Call this once per deploy (e.g. from
- * scripts/seed-resorts.ts) rather than relying on getActiveScoringConfig's
- * own fallback forever, so live scores start getting a real
+ * scripts/seed-resorts.ts) rather than relying on getActiveModelVersion's
+ * own null fallback forever, so live scores start getting a real
  * model_version_id instead of staying permanently version-less.
  */
 export async function createBaselineVersionIfNoneExists(createdBy = "system:baseline"): Promise<ModelVersion> {

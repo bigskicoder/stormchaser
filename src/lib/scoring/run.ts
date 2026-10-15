@@ -8,7 +8,7 @@
 
 import { getServiceDb } from "@/lib/db/client";
 import type { ForecastPull, ModelName, ModelVersion, Resort } from "@/lib/db/types";
-import { getActiveScoringConfig, listShadowModelVersions } from "@/lib/model-versions/resolve";
+import { getActiveModelVersion, listShadowModelVersions } from "@/lib/model-versions/resolve";
 import {
   dailyAvgCloudCoverPct,
   dailyAvgTempC,
@@ -23,7 +23,7 @@ import {
   precipWeightedTmaxC,
   primaryModelForLeadTime,
 } from "./aggregate";
-import { DEFAULT_SCORING_CONFIG, toScoringConfig, type ScoringConfig } from "./config";
+import { DEFAULT_SCORING_CONFIG, resolveScoringConfigForResort, type ScoringConfig } from "./config";
 import { scoreEnsembleConfidence } from "./ensemble-confidence";
 import { computeLeadTimeFit, computeNormalizedSnowfall, computePowderScore } from "./powder-score";
 import { reconcileModels } from "./reconciliation";
@@ -184,6 +184,11 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
   };
 }
 
+/** The active version's config as resolved for ONE resort (ROADMAP Phase B.3) — undefined (computeScoreFromInputs' own DEFAULT_SCORING_CONFIG fallback) when no version has ever been activated yet. */
+function activeConfigForResort(activeVersion: ModelVersion | null, resortId: string): ScoringConfig | undefined {
+  return activeVersion ? resolveScoringConfigForResort(activeVersion, resortId) : undefined;
+}
+
 export async function computeScoreForResortDay(
   resort: Resort,
   targetDateIso: string,
@@ -193,7 +198,7 @@ export async function computeScoreForResortDay(
   const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDateIso, resort.timezone);
   const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDateIso, resort.timezone);
   const seasonalMaxIn = await fetchSeasonalMaxSnowfallIn(resort.id);
-  const { config, versionId } = await getActiveScoringConfig();
+  const activeVersion = await getActiveModelVersion();
 
   return computeScoreFromInputs({
     resortId: resort.id,
@@ -203,8 +208,8 @@ export async function computeScoreForResortDay(
     ensembleMemberTotals,
     slrCalibrationMultiplier: resort.slr_calibration_multiplier,
     seasonalMaxSnowfallIn: seasonalMaxIn,
-    scoringConfig: config,
-    modelVersionId: versionId,
+    scoringConfig: activeConfigForResort(activeVersion, resort.id),
+    modelVersionId: activeVersion?.id ?? null,
   });
 }
 
@@ -280,6 +285,17 @@ export function shadowCalibrationMultiplier(shadow: ModelVersion, resort: Resort
  * EXACT SAME fetched forecast inputs for a given resort/date, fetched once
  * and reused, not once per version — so parallel scoring costs one extra
  * DB write per shadow version, not one extra round of ingestion reads.
+ *
+ * Both the active version's config and each shadow version's config are
+ * resolved PER RESORT (resolveScoringConfigForResort — ROADMAP Phase B.3,
+ * "I want the model to be as precise as possible so code the individual
+ * resorts"), not once globally and reused — a resort with no override
+ * still resolves to exactly that version's own global config, so this is
+ * free for every resort until one is actually differentiated. The
+ * per-resort resolution itself is a cheap in-memory object merge, not an
+ * extra DB read — resolveScoringConfigForResort takes the already-fetched
+ * activeVersion/shadow row, so differentiating resorts doesn't add to this
+ * function's read volume, only to how many distinct config shapes get used.
  */
 export async function runScoringForAllResorts(
   horizonDays = 10
@@ -289,7 +305,8 @@ export async function runScoringForAllResorts(
   if (error) throw error;
   const resorts = (data ?? []) as Resort[];
 
-  const { config: activeConfig, versionId: activeVersionId } = await getActiveScoringConfig();
+  const activeVersion = await getActiveModelVersion();
+  const activeVersionId = activeVersion?.id ?? null;
   const shadowVersions = await listShadowModelVersions();
 
   let scoresWritten = 0;
@@ -311,7 +328,7 @@ export async function runScoringForAllResorts(
         const primaryScore = computeScoreFromInputs({
           ...sharedInputs,
           slrCalibrationMultiplier: resort.slr_calibration_multiplier,
-          scoringConfig: activeConfig,
+          scoringConfig: activeConfigForResort(activeVersion, resort.id),
           modelVersionId: activeVersionId,
         });
         if (primaryScore) {
@@ -323,7 +340,7 @@ export async function runScoringForAllResorts(
           const shadowScore = computeScoreFromInputs({
             ...sharedInputs,
             slrCalibrationMultiplier: shadowCalibrationMultiplier(shadow, resort),
-            scoringConfig: toScoringConfig(shadow),
+            scoringConfig: resolveScoringConfigForResort(shadow, resort.id),
             modelVersionId: shadow.id,
           });
           if (shadowScore) {

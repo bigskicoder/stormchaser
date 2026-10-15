@@ -22,7 +22,7 @@ export class ModelVersionNotFoundError extends Error {
  * (if any), marks this one active, and writes its resort_slr_multipliers
  * snapshot back onto the live resorts table — so activating a version
  * immediately changes what the next scoring run produces, for both the
- * global weights (read fresh via getActiveScoringConfig each run) and the
+ * global weights (read fresh via getActiveModelVersion each run) and the
  * per-resort SLR multipliers (written through to resorts now, same as
  * Phase B's existing apply.ts has always done on a calibration approval).
  *
@@ -30,7 +30,7 @@ export class ModelVersionNotFoundError extends Error {
  * one easily, and no other write path in this codebase uses one either —
  * consistent with the project's existing simplicity level). There's a
  * brief window with zero active versions between the archive and activate
- * writes; getActiveScoringConfig's DEFAULT_SCORING_CONFIG fallback makes
+ * writes; computeScoreFromInputs' own DEFAULT_SCORING_CONFIG fallback makes
  * that window harmless even if a scoring run lands exactly inside it.
  */
 export async function activateModelVersion(versionId: string, activatedBy: string): Promise<ModelVersion> {
