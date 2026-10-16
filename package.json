@@ -14,7 +14,8 @@
     "seed:resorts": "tsx scripts/seed-resorts.ts",
     "backtest:slr-reanalysis": "tsx scripts/backtest-slr-reanalysis.ts",
     "backtest:reconciliation": "tsx scripts/backtest-reconciliation-forecast-archive.ts",
-    "analyze:mansfield-enso": "tsx scripts/analyze-mansfield-enso.ts"
+    "analyze:mansfield-enso": "tsx scripts/analyze-mansfield-enso.ts",
+    "create:regional-weighting-draft": "tsx scripts/create-regional-weighting-draft.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.11.0",

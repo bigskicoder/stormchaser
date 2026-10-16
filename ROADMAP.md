@@ -28,10 +28,11 @@ links back here for status.
 | B.2 | Parallel model scoring ("shadow mode") | ✅ Built, dormant until a draft is shadowed | **You** — create a `kuchera-wind` draft and toggle shadowing |
 | B.3 | Per-resort model precision | ✅ Built, dormant until a resort is differentiated | **You** — set a per-resort override from `/admin/model-versions` |
 | B.4 | Mount Mansfield stake ground truth + ENSO research (Stowe) | 🟡 Built, `ghcnd_station_id` unverified | **You** — confirm the station id, provide `NCEI_CDO_TOKEN` |
+| B.5 | Regional model weighting | ✅ Built, dormant until the draft is created + shadowed | **You** — `npm run create:regional-weighting-draft`, then toggle shadowing |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 | D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
 
-**Test/build state as of this update**: 204/204 unit tests passing, clean
+**Test/build state as of this update**: 222/222 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -789,6 +790,147 @@ support (both discussed, neither built).
 
 ---
 
+## Phase B.5 — Regional model weighting
+
+**Status: ✅ built, dormant until the draft is created and shadowed.**
+`lib/config/resort-regions.ts`, `lib/config/regional-model-weights.ts`,
+`lib/model-versions/regional-overrides.ts`,
+`scripts/create-regional-weighting-draft.ts`. 18 new unit tests (11 for
+the region/weights data's own internal consistency — including a
+roster-completeness check against the real seed data — 7 for the pure
+override-expander function).
+
+Requested directly, across two messages: *"we should be able to
+individually select the best weather model for each mtn out of our model
+pool... to mix and match at the resort level. As well as regionally for
+the incoming weather as performance develops"*, then, after I'd explained
+what already existed and what didn't, *"develop the best regional model u
+can."*
+
+**What was already true, and what this phase actually adds**:
+per-resort model mixing was already possible before this phase —
+`model_weights_by_bucket` is a per-model weight table (Phase B.3 already
+lets it be overridden per resort), and setting a model's weight to 1.0 is
+already "select that model exclusively" for a bucket; a blend is just a
+more general case of selection. What this phase adds is the two things
+that genuinely weren't there: (1) an actual reasoned regional starting
+point, instead of 65 individually-blank resorts, and (2) a way to apply
+one weighting scheme to many resorts in a single action, instead of
+hand-editing each resort's JSON override — closing exactly the gap Phase
+B.3's own "what this doesn't do" section flagged: *"a clustering UI is a
+reasonable follow-up if the roster's real accuracy data ever suggests
+specific regional groupings worth codifying."*
+
+**The regions, and why these five**: `resort-regions.ts` classifies the
+full 65-resort roster by storm mechanism and terrain, not an arbitrary
+grid — **Pacific Maritime** (Sierra Nevada, WA Cascades: the first range
+Pacific moisture hits, large well-organized systems, orographic QPF is
+the hard part), **Interior West** and **Continental Rockies** (UT/ID/NM
+and CO/WY/MT: storms have already crossed 1+ ranges and lost moisture,
+more synoptic-timing-dependent), **Northeast/Coastal-East** (VT/NH/NY/PA/WV:
+nor'easter/East Coast cyclogenesis — a fundamentally different storm
+mechanism, not Pacific-sourced), and **Midwest/Great Lakes** (MN/MI/WI/IN/MO:
+lake-effect-influenced, flat, low elevation). A handful of classifications
+are real judgment calls, flagged inline in the file rather than presented
+as equally confident as the clear cases (Southern California's San
+Gabriel/San Bernardino resorts grouped with the Sierra/Cascades on
+storm-track mechanism despite a much more marginal snow climate;
+Idaho's Schweitzer grouped with Pacific Maritime for its direct Columbia
+Basin moisture exposure despite being geographically separate from the
+Sierra/Cascades cluster). A unit test cross-checks this classification
+against the real `resorts-seed.ts` roster, so a future resort added
+without a region assignment fails a test instead of silently falling
+through uncovered.
+
+**The weighting hypothesis, grounded in real research, with real limits
+stated plainly**: `regional-model-weights.ts` is, like `kuchera-wind`, an
+engineering hypothesis — WebSearch-researched this session, not a
+reproduction of a specific published verification study, and explicitly
+NOT derived from this project's own `accuracy_log` (which doesn't have
+enough history yet to support it — see the "as performance develops"
+gap this phase doesn't close, below). The research changed my own
+starting assumptions in two ways worth recording: a hypothesized GEM
+boost for Canadian-sourced systems in the northernmost resorts turned out
+to have only an informal, unverified forum claim behind it, so it was
+dropped rather than shipped on weak evidence; and ECMWF's medium-range
+edge over GFS turned out to be a *general* finding (avoiding GFS's
+periodic skill "dropouts," a documented recent GFS skill decline), not
+Northeast-specific — the compiled-in global baseline already reflects it
+for every resort, so the Northeast's regional treatment is a modest
+*additional* nudge on top of that, not an invented-from-scratch
+differentiator.
+
+Two distinct weighting profiles result, not five independently-tuned
+ones — stated honestly rather than padded out: Pacific Maritime,
+Interior West, and Continental Rockies share one profile (a modest
+HRRR nudge at short lead times only, taken from GFS — real,
+peer-reviewed support: Gowan, Steenburgh & Schwartz 2018 found
+high-resolution, terrain-resolving models including HRRR more
+deterministically skillful than coarser models in narrow interior
+ranges, SNOTEL-verified — this finding doesn't itself support
+differentiating the three mountain regions from EACH OTHER, only
+mountain-terrain-broadly from flatter terrain, so they aren't forced
+apart on no evidence). Northeast/Coastal-East gets the inverse short-range
+treatment (HRRR held at or below baseline — a developing coastal low's
+broad structure matters more than one sharp terrain feature) plus the
+ECMWF medium/long-range nudge described above, reflecting
+(imperfectly — Hurricane Sandy's 7-day-early call is the well-known
+positive case; the January 2015 "Snowpocalypse," where the GFS's revised
+run actually verified better than the ECMWF guidance forecasters leaned
+on, is the well-known honest counterexample) ECMWF's East Coast
+storm-track reputation. **Midwest/Great Lakes deliberately gets no
+hypothesis at all** — lake-effect snow is a meso-scale phenomenon driven
+by lake-surface temperature, ice cover, and wind fetch, which none of
+these five synoptic-scale models (HRRR included, even at 3km) resolve
+well, and no research this session supported inventing a number just to
+fill the region in. ICON is left untouched everywhere, same reasoning —
+no regional evidence found either way.
+
+**Mechanics**: `lib/model-versions/regional-overrides.ts`'s
+`buildRegionalResortScoringOverrides` is a pure function (DB-agnostic,
+unit tested) that expands the region+weights data into the
+`resort_scoring_overrides` shape a `model_versions` row expects, reusing
+`partialScoringConfigToResortOverride` (Phase B.3) rather than
+constructing that shape by hand. A resort with no regional hypothesis
+(no classification yet, or classified into Midwest/Great Lakes) is simply
+left out of the map — not given a forced no-op entry — since omission
+already means "inherit the version's global config unchanged" per
+`resolveScoringConfigForResort`'s own semantics.
+One mechanical correctness note worth recording: `resolveScoringConfigForResort`
+replaces `model_weights_by_bucket` as a **whole object** when an override
+sets it at all — there's no per-bucket merge — so every region's weights
+table specifies all three lead-time buckets explicitly, including the
+ones left identical to the compiled-in baseline, rather than omitting a
+bucket and accidentally leaving it undefined for that region's resorts.
+
+`npm run create:regional-weighting-draft` clones the active version's
+global config and lineage (same fallback-to-baseline pattern every other
+draft-creation path already uses), applies the regional overrides, and
+saves it as a draft named "Regional NWP weighting v1" — never
+activated or shadowed automatically. Start shadowing it from
+`/admin/model-versions` when you're ready to compare it against real
+data this season; the existing compare view (Phase B.1) and its
+per-resort filter (Phase B.3) are what you'd read the results with — no
+new comparison UI needed, same reuse pattern as `kuchera-wind`.
+
+**What this deliberately doesn't do — the real "as performance develops"
+gap remains open**: this phase answers "what's a defensible regional
+starting point today," not "what does our own data say is actually best
+per resort." As I flagged before building this: `snow_scores`/
+`accuracy_log` only ever record the *reconciled blend's* accuracy, never
+each individual model's own standalone accuracy — so there is still no
+data anywhere in this system that could confirm or refute this phase's
+hypothesis, only shadow-scored comparisons of the *blend* with vs.
+without these regional weights. Making individual-model accuracy
+real and data-driven (not just better-reasoned) would need the
+per-model accuracy tracking already scoped in conversation but not yet
+built — a reasonable next phase, not done here. No bulk-editing UI
+either — the regional overrides are generated by a script into one draft
+version; editing them further still goes through the same per-resort
+JSON textarea as any other override.
+
+---
+
 ## Phase C — Autonomous dev-iteration loop (Claude Code)
 
 **Status: ⬜ designed, not activated. Opt-in — tell me when you want this turned on.**
@@ -1503,6 +1645,50 @@ to re-read the original primer to know what's accounted for.
   scoring, alerts, or any Phase B.3 override — research output, not a
   production input. 19 new tests (204 total), clean typecheck, clean
   build.
+- **2026-10-16** — Built regional model weighting (Phase B.5), requested
+  across two messages: *"we should be able to individually select the
+  best weather model for each mtn... to mix and match at the resort
+  level. As well as regionally for the incoming weather as performance
+  develops"*, then, after I explained per-resort mixing already existed
+  via Phase B.3 and regional didn't, *"develop the best regional model u
+  can."* Classified the full 65-resort roster into 5 storm-mechanism
+  regions (`lib/config/resort-regions.ts`), with a few honestly-flagged
+  judgment calls (SoCal grouped with the Sierra/Cascades on storm-track
+  mechanism despite a marginal snow climate; Schweitzer grouped with
+  Pacific Maritime for its direct Columbia Basin exposure) and a unit
+  test that cross-checks the classification against the real seed roster
+  so an unclassified future resort fails a test rather than falling
+  through silently. Researched real regional NWP skill differences before
+  writing any weights (`lib/config/regional-model-weights.ts`) — this
+  corrected my own starting assumptions twice: a hypothesized GEM boost
+  for Canadian-sourced northern systems turned out to rest on only an
+  informal forum claim, so it was dropped rather than shipped on weak
+  evidence, and ECMWF's medium-range edge over GFS turned out to be
+  general, not Northeast-specific (the compiled-in baseline already
+  reflects it for everyone), so the Northeast's treatment became a modest
+  additional nudge reflecting its own documented-but-imperfect East Coast
+  storm-track reputation (Sandy's 7-day-early call vs. the January 2015
+  "Snowpocalypse" miss, both cited), not an invented differentiator.
+  Three of five regions ended up sharing one weighting profile (real
+  literature supports HRRR's value in complex mountain terrain broadly,
+  not differentiating Pacific Maritime from the interior), and
+  Midwest/Great Lakes deliberately got no hypothesis at all — lake-effect
+  snow isn't resolved well by any of these synoptic-scale models, and no
+  research supported inventing a number just to fill the region in.
+  Built `lib/model-versions/regional-overrides.ts`'s pure expander
+  (reuses Phase B.3's `partialScoringConfigToResortOverride` rather than
+  hand-building the override shape) and `npm run
+  create:regional-weighting-draft` to turn it into a shadowable draft —
+  never auto-activated or auto-shadowed, same explicit-admin-click
+  principle as every other version-creation path. Caught and fixed one
+  real mechanical bug before shipping: `resolveScoringConfigForResort`
+  replaces `model_weights_by_bucket` as a whole object, not a per-bucket
+  merge, so every region's table specifies all three lead-time buckets
+  explicitly rather than risking an undefined bucket for buckets left
+  "unchanged." Stated plainly what this doesn't close: the deeper
+  "as performance develops" gap (no per-model accuracy tracking exists
+  yet, only the reconciled blend's) remains open, scoped but not built.
+  18 new tests (222 total), clean typecheck, clean build.
 
 ---
 
@@ -1537,7 +1723,14 @@ from you before it does anything live: confirm `ghcnd_station_id`
 warning for the Mansfield backfill step and move on — nothing else
 breaks. Once confirmed, `npm run seed:resorts` backfills the full
 1954-present record and `npm run analyze:mansfield-enso` becomes
-meaningful to run. → Phase B's broader constants
+meaningful to run. → Phase B.5 needs exactly one action from you,
+whenever you want to start comparing it: `npm run
+create:regional-weighting-draft`, then toggle "Start shadowing" on the
+resulting draft from `/admin/model-versions` — same one-click pattern as
+Phase B.2's `kuchera-wind`, and the same existing compare view reads the
+results, filtered to one resort at a time via Phase B.3's filter if you
+want to check a specific mountain rather than the all-resorts blend. →
+Phase B's broader constants
 (alert threshold, score weights) only after the per-resort SLR case has
 run a full cycle and you're comfortable with it — if you do eventually
 want to tune one of those, do it as a draft model version first and
