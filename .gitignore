@@ -14,6 +14,9 @@ dist/
 .env
 .env*.local
 
+# local backtest output (scripts/run-local-model.sh)
+local-data/
+
 # misc
 .DS_Store
 *.log
