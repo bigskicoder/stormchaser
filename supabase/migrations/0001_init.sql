@@ -214,8 +214,14 @@ create table if not exists accuracy_log (
 
 create index if not exists idx_accuracy_log_resort on accuracy_log (resort_id, target_date);
 
--- updated_at maintenance trigger
-create or replace function set_updated_at() returns trigger as $$
+-- updated_at maintenance trigger. Pinned to an empty search_path so the
+-- function can't be hijacked by objects in a caller-controlled schema
+-- (Supabase security advisor lint 0011 "function_search_path_mutable");
+-- the body only touches NEW and pg_catalog's now(), so nothing needs
+-- schema-qualifying.
+create or replace function set_updated_at() returns trigger
+  set search_path = ''
+as $$
 begin
   new.updated_at = now();
   return new;
