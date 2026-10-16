@@ -25,7 +25,7 @@ export const expressApp = express();
 const router = express.Router();
 
 router.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", service: "powder-alert-express", time: new Date().toISOString() });
+  res.json({ status: "ok", service: "powder-seeker-express", time: new Date().toISOString() });
 });
 
 const subscribeSchema = z.object({

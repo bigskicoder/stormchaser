@@ -1,7 +1,8 @@
 # ROADMAP
 
-This is the single authoritative planning document for powder-alert past
-PART_1. If you're picking this project back up after time away, start
+This is the single authoritative planning document for Powder Seeker
+(formerly built under the working name "powder-alert" — see Phase D for
+the rename) past PART_1. If you're picking this project back up after time away, start
 here — it tells you what's done, what's not, what needs your action
 specifically (not code), and what's safe to just ask Claude Code to
 continue. `README.md` stays focused on setup/architecture detail and
@@ -30,7 +31,7 @@ links back here for status.
 | B.4 | Mount Mansfield stake ground truth + ENSO research (Stowe) | 🟡 Built, `ghcnd_station_id` unverified | **You** — confirm the station id, provide `NCEI_CDO_TOKEN` |
 | B.5 | Regional model weighting | ✅ Built, dormant until the draft is created + shadowed | **You** — `npm run create:regional-weighting-draft`, then toggle shadowing |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
-| D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
+| D | Visual design / UI polish | ✅ Built, named — "Powder Seeker" / `powderseeker.us` | Done |
 
 **Test/build state as of this update**: 222/222 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
@@ -68,7 +69,7 @@ done without you. Ordered by what actually blocks what.
 ### Tier 4 — ongoing, after initial deploy
 12. **Let ingestion run for a few days** before judging anything — the scoring engine needs real `forecast_pulls`/`ensemble_pulls` history, and the seasonal-max normalization bootstraps cold (defaults to 24" until real history exists).
 13. **One end-to-end dry run**: once subscribers + Resend are wired, force a test alert and confirm the email actually lands, the admin graphic renders, and the Instagram publish actually works against your real account — every one of these is still unverified against a real service.
-14. **Custom domain + product name** — both genuinely optional and non-blocking. Vercel gives you a free `*.vercel.app` URL automatically, and a domain can be attached later without redeploying anything. The primer itself left the product name as "powder-alert (rename TBD)" (BUILD_PRIMER section 0) — decide on a final name whenever you want, not before; see Phase D for where branding/naming actually gets applied once decided.
+14. **Custom domain + product name** — ✅ **decided**: the product is **Powder Seeker**, domain `powderseeker.us` purchased. The primer itself had left the product name as "powder-alert (rename TBD)" (BUILD_PRIMER section 0); the rename has been applied throughout the codebase (UI, email subject lines, social captions, metadata — see Phase D). Still genuinely optional/non-blocking for go-live specifically: Vercel gives you a free `*.vercel.app` URL automatically, and attaching the real domain in Vercel's dashboard (plus pointing `ALERTS_FROM_EMAIL`'s domain verification in Resend at it) can happen whenever you're ready — no redeploy required either way.
 15. **Season-long accuracy burn-in** before fully trusting alerts or touching Phase B — see Phase B below.
 
 ---
@@ -1137,10 +1138,26 @@ surfaced from reading the component source alone.
   at desktop and mobile widths, then removed — no new bugs found this
   pass.
 
-**Still open**: the product name itself (BUILD_PRIMER section 0,
-"rename TBD") — the current design uses "powder-alert" as a working
-brand, which is low-cost to swap for a real name/logo later since
-nothing about the visual system depends on this specific name.
+**Resolved**: the product name (BUILD_PRIMER section 0, "rename TBD")
+is now **Powder Seeker** (`powderseeker.us`, purchased) — confirming the
+design system's own earlier claim, the swap was genuinely low-cost since
+nothing about the visual system depended on the specific name. Updated
+everywhere the old working name appeared: the site header/brand mark
+(`BrandRow`), the browser tab title (`layout.tsx`'s metadata), the
+generated social-share graphic's kicker label (`api/admin/graphic/`),
+the alert email's subject line (now "Powder Seeker alert: ...", treating
+it as a real brand touchpoint rather than leaving it generic), the
+Instagram caption hashtag, `package.json`'s own name, the NWS User-Agent
+string and `.env.example`'s example values, and a couple of internal
+code comments/identifiers for consistency. Left deliberately unchanged:
+the BUILD_PRIMER citation itself (`powder-alert-platform :: PART_1`) —
+that's quoting the founding spec document's own historical title, not
+this project's current branding, and every earlier ROADMAP session-log
+entry describing work done under the old working name — rewriting
+project history to pretend the name was always "Powder Seeker" would be
+dishonest, not just a style choice. No git history or GitHub repository
+name changes either — renaming the repo itself was never asked for and
+would be a separate, more disruptive action (clone URLs, webhooks, CI).
 
 - **"Less AI-generated" pass**, requested directly — the operator's own
   words: the first-pass design was functional and consistent, but had
@@ -1689,6 +1706,35 @@ to re-read the original primer to know what's accounted for.
   "as performance develops" gap (no per-model accuracy tracking exists
   yet, only the reconciled blend's) remains open, scoped but not built.
   18 new tests (222 total), clean typecheck, clean build.
+- **2026-10-16** — Resolved the product name (Phase D's last open item,
+  BUILD_PRIMER section 0's "rename TBD"): *"the domain stormchaser is
+  thousands of dollars we can get powderseeker.us for $8"*, confirmed
+  eligible (*"I am a US citizen"* — `.us` has a real Nexus requirement,
+  checked via WebSearch before treating it as a non-issue), then *"I
+  bought Powderseeker.US so go ahead."* Renamed the product to **Powder
+  Seeker** everywhere the old working name "powder-alert" appeared as a
+  display string or identifier: the site header/brand mark (`BrandRow`),
+  the browser tab title, the generated social-share graphic's kicker
+  label, the alert email's subject line (treated as a real brand
+  touchpoint — now "Powder Seeker alert: ...", not left generic), the
+  Instagram caption hashtag, `package.json`'s own name (regenerating
+  `package-lock.json` via `npm install` rather than hand-editing it), the
+  NWS User-Agent string, `.env.example`'s example values (now reflecting
+  the real `powderseeker.us` domain instead of a generic placeholder),
+  and a couple of internal identifiers/comments for consistency.
+  Deliberately left unchanged: the BUILD_PRIMER citation itself
+  (`powder-alert-platform :: PART_1`) — a quotation of the founding spec
+  document's own historical title, not this project's current branding —
+  and every earlier session-log entry here, which describes real work
+  done under the old working name and stays as accurate history rather
+  than being rewritten. No repository rename — out of scope, never asked
+  for, and a separate, more disruptive action (clone URLs, webhooks, CI)
+  than renaming the product itself. Verified visually via temporary
+  preview routes and `playwright-core` screenshots of the renamed site
+  header, admin panel, and generated social graphic before removing them.
+  Zero logic changes — pure content/copy, confirmed via a full grep sweep
+  for the old name afterward. Clean typecheck, clean build, all existing
+  tests still passing (no test asserted the old name as a string).
 
 ---
 
@@ -1735,6 +1781,9 @@ Phase B's broader constants
 run a full cycle and you're comfortable with it — if you do eventually
 want to tune one of those, do it as a draft model version first and
 backtest under it before activating, same discipline as everything else
-in Phase B. Phase D ran independently of all of this and its first pass
-is done — a decided product name is the only real blocker left for a
-final polish pass (swapping "powder-alert" for the real name/logo).
+in Phase B. Phase D ran independently of all of this and is now fully
+done — the product name is decided (Powder Seeker, `powderseeker.us`)
+and the rename has already been applied throughout the codebase. The
+only piece left is attaching the real domain in Vercel/Resend when
+you're ready to go live (Phase 0 item 14) — no further code work
+needed for the name itself.

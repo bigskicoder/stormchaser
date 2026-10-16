@@ -123,7 +123,7 @@ async function logNwsBenchmarkAccuracy(
   // SWE value, so there's no SLR re-derivation here — compare directly
   // against SNOTEL's SWE converted through a plain 12:1 fixed ratio as the
   // simplest neutral "observed equivalent" baseline for this comparison
-  // (not the resort-tuned Kuchera ratio used for the powder-alert side,
+  // (not the resort-tuned Kuchera ratio used for the Powder Seeker side,
   // since this is a baseline-vs-baseline check, not our own calibration).
   const observedEquivalentIn = (actual.observed_swe_mm * 12) / 25.4;
   const accuracyErrorIn = benchmark.estimated_snowfall_in - observedEquivalentIn;

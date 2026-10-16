@@ -22,6 +22,6 @@ export function draftCaption(resort: Resort, alert: AlertFired): string {
     `${inches}" forecast for ${dateLabel}. ${confidenceLine}`,
     `Powder score: ${(payload.powder_score * 100).toFixed(0)}/100.`,
     `Full breakdown + live scores for every resort we track: link in bio.`,
-    `#powderalert #${resort.slug.replace(/-/g, "")} #skiing #snowboarding #powderday`,
+    `#powderseeker #${resort.slug.replace(/-/g, "")} #skiing #snowboarding #powderday`,
   ].join("\n\n");
 }

@@ -55,7 +55,7 @@ function renderAlertEmail(params: {
     month: "short",
     day: "numeric",
   });
-  const subject = `Powder alert: ${resortName} — ${estimatedSnowfallIn.toFixed(0)}" forecast (${confidenceLabel} confidence)`;
+  const subject = `Powder Seeker alert: ${resortName} — ${estimatedSnowfallIn.toFixed(0)}" forecast (${confidenceLabel} confidence)`;
   const html = `
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
       <h1 style="font-size: 20px;">${resortName}</h1>

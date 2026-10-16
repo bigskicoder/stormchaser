@@ -32,7 +32,7 @@ import { localDateRangeToUtc, localDayBoundsContaining, utcInstantToLocalDateIso
 const NWS_BASE_URL = "https://api.weather.gov";
 
 function userAgent(): string {
-  const contact = process.env.NWS_USER_AGENT ?? "powder-alert (contact not configured)";
+  const contact = process.env.NWS_USER_AGENT ?? "powder-seeker (contact not configured)";
   return contact;
 }
 

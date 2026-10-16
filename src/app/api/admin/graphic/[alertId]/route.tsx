@@ -127,7 +127,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ alertId
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <BrandMark />
           <div style={{ display: "flex", fontSize: 22, color: "#8d9ab8", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase" }}>
-            Powder Alert
+            Powder Seeker
           </div>
         </div>
 

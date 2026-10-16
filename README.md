@@ -1,6 +1,6 @@
-# powder-alert (PART_1)
+# Powder Seeker (PART_1)
 
-Storm-signal detection + confidence-scored trip-opportunity alert engine for storm-chasing skiers. Built from `BUILD_PRIMER: powder-alert-platform :: PART_1`.
+Storm-signal detection + confidence-scored trip-opportunity alert engine for storm-chasing skiers. Built from `BUILD_PRIMER: powder-alert-platform :: PART_1` (the primer's own working title — left as-written, a historical citation, not the product's current name). Named **Powder Seeker** once a product name was decided — domain `powderseeker.us` — see ROADMAP.md's Phase D for the rename and everywhere it touched.
 
 This is a working, from-scratch implementation — schema, ingestion, scoring engine, alerting, public site, and admin panel — built against **placeholder env vars**. No live Supabase/Clerk/Resend/Vercel/Instagram/Travelpayouts credentials were provisioned in this build session, and outbound network to `api.open-meteo.com` / NRCS's `wcc.sc.egov.usda.gov` was unreachable from the sandbox, so several integration surfaces are built to documented API conventions rather than live-validated. Everything is flagged below and in code comments — search for `ASSUMPTION FLAG` and `VERIFICATION FLAG` in `src/lib`.
 

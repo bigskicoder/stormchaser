@@ -16,7 +16,7 @@ const heading = Space_Grotesk({ subsets: ["latin"], weight: ["500", "700"], vari
 const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["500", "700"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "powder-alert",
+  title: "Powder Seeker",
   description: "Storm-signal detection and confidence-scored powder alerts for storm-chasing skiers.",
 };
 

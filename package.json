@@ -1,5 +1,5 @@
 {
-  "name": "powder-alert",
+  "name": "powder-seeker",
   "private": true,
   "version": "0.1.0",
   "description": "Storm-signal detection + confidence-scored trip-opportunity alert engine for storm-chasing skiers.",

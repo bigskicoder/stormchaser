@@ -12,7 +12,7 @@ export function BrandRow() {
         <path d="M4 22 L12 8 L16 14 L20 6 L26 22 Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         <path d="M2 17 L28 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
       </svg>
-      <span className="brand-name">powder-alert</span>
+      <span className="brand-name">Powder Seeker</span>
     </div>
   );
 }
