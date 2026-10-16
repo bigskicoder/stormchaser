@@ -11,6 +11,7 @@ function actual(date: string, changeIn: number | null): SnotelActual {
     observed_swe_mm: null,
     snow_depth_in: null,
     observed_depth_change_in: changeIn,
+    source: "snotel",
     pulled_at: "2026-01-01T00:00:00Z",
     created_at: "2026-01-01T00:00:00Z",
   };

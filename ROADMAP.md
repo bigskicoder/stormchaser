@@ -27,10 +27,11 @@ links back here for status.
 | B.1 | Model versioning (save/compare/roll back) | ✅ Built | Done — `/admin/model-versions` |
 | B.2 | Parallel model scoring ("shadow mode") | ✅ Built, dormant until a draft is shadowed | **You** — create a `kuchera-wind` draft and toggle shadowing |
 | B.3 | Per-resort model precision | ✅ Built, dormant until a resort is differentiated | **You** — set a per-resort override from `/admin/model-versions` |
+| B.4 | Mount Mansfield stake ground truth + ENSO research (Stowe) | 🟡 Built, `ghcnd_station_id` unverified | **You** — confirm the station id, provide `NCEI_CDO_TOKEN` |
 | C | Autonomous dev-iteration loop | ⬜ Designed, not activated | **You** — say go when ready |
 | D | Visual design / UI polish | 🟡 Public site + admin panel done, pending only the product name | You (product name) |
 
-**Test/build state as of this update**: 185/185 unit tests passing, clean
+**Test/build state as of this update**: 204/204 unit tests passing, clean
 `tsc --noEmit`, clean `next build`, `npm audit` down to 0 critical
 vulnerabilities reachable by this project's actual usage (1 remaining
 critical is in vitest's UI-server feature, which isn't used here — see
@@ -61,6 +62,7 @@ done without you. Ordered by what actually blocks what.
 ### Tier 3 — only blocks specific features, fine to lag behind go-live
 10. **Travelpayouts token** (optional) — fare enrichment is explicitly non-blocking by design (section 2.4); skip this indefinitely if you don't care about it.
 11. **Meta Business + Instagram Business account**, dev-mode Meta app, Tester role on your own IG account, long-lived access token → `IG_USER_ID`, `IG_ACCESS_TOKEN`. This blocks only the Instagram-posting admin feature — the entire rest of the product (scoring, alerts, public site) works without it.
+12. **NCEI CDO token** (optional, free, self-service at `ncei.noaa.gov/cdo-web/token`) → `NCEI_CDO_TOKEN`. Blocks only Stowe's Mount Mansfield snow-stake ground truth (Phase B.4) — every other resort's scoring/alerts/calibration works without it. Before relying on it, also confirm the seeded `ghcnd_station_id` (`USC00435416`) against NCEI's own station catalog — see Phase B.4 for why this session couldn't verify it directly.
 
 ### Tier 4 — ongoing, after initial deploy
 12. **Let ingestion run for a few days** before judging anything — the scoring engine needs real `forecast_pulls`/`ensemble_pulls` history, and the seasonal-max normalization bootstraps cold (defaults to 24" until real history exists).
@@ -662,6 +664,128 @@ a clustering UI is a reasonable follow-up if the roster's real accuracy
 data ever suggests specific regional groupings worth codifying, but
 inventing those groupings now, without evidence, is exactly the kind of
 guess this project avoids.
+
+---
+
+## Phase B.4 — Mount Mansfield stake ground truth + ENSO research (Stowe)
+
+**Status: 🟡 built, `ghcnd_station_id` unverified, needs `NCEI_CDO_TOKEN`.**
+`supabase/migrations/0011_mansfield_stake.sql`,
+`lib/ingestion/mansfield-stake.ts`, `lib/analysis/mansfield-enso.ts`,
+`lib/config/enso-winters.ts`, `scripts/analyze-mansfield-enso.ts`. 19 new
+unit tests (6 for the ingestion module's pure helpers, 13 for the ENSO
+analysis's season-labeling/aggregation/grouping logic).
+
+Requested directly, in two parts of the same exchange: *"For Stowe
+specifically can u integrate data from the Mansfield snow stake"*, then
+*"Procede with research also Procede with integrating the snowstake data,
+pay particular attention to ENSO behavior around the stake as well."*
+Came out of an earlier evaluation of adding East Coast resorts, which
+surfaced that SNOTEL — this project's only ground-truth network so far —
+has no Northeast coverage at all. The Mount Mansfield stake is a better
+answer for Stowe specifically than any generic nearest-station search
+could be: it's literally on Stowe's own mountain, read daily by NWS
+Burlington, with a continuous record back to **November 1, 1954** — one
+of the longest, most locally specific snow records in North America.
+
+**Where the data comes from, and why not the obvious-looking option**:
+research (this session, via WebSearch) turned up three possible sources.
+A UVM-hosted mirror of the stake's record is real and documented but
+licensed **CC BY-NC-SA (non-commercial)** — deliberately NOT used, same
+reasoning this project already applied to declining OpenSnow scraping: a
+license mismatch with a commercial product is a legal question, not a
+technical one, and not this codebase's call to make unilaterally. A
+volunteer-run third-party site compiles the same underlying NWS report
+into a graph — also declined, for the same "don't depend on an
+unofficial, uninvolved third party" reasoning already applied to OpenSnow.
+The path actually used: **NOAA's own NCEI GHCND archive**, public-domain
+federal data (same legal category SNOTEL already has public
+RLS-policy-level read access on, per migration `0006`'s own comment),
+reachable through a real, documented REST API (the CDO v2 web service) —
+architecturally the same kind of integration as NWS/SNOTEL already are,
+not a scrape.
+
+**What's unverified, stated plainly**: this session tried, for real, to
+confirm the specific GHCND station id before building anything — a
+WebFetch attempt at NOAA's own raw ONI data file
+(`origin.cpc.ncep.noaa.gov` and the `www.cpc.ncep.noaa.gov` mirror)
+returned a DNS resolution failure, the same pattern every other
+`*.noaa.gov`/`*.egov.usda.gov` host has hit all session (confirmed via the
+sandbox's own proxy-status endpoint, not just assumed). The seeded
+candidate id for Stowe, `USC00435416`, traces back to a single forum-post
+citation — plausible (the "USC" prefix matches the right station-type
+format) but not confirmed against NCEI's own station catalog.
+`resorts-seed.ts`'s Stowe entry, migration `0011`'s header, and
+`mansfield-stake.ts`'s own header all carry this same flag. The ingestion
+code degrades gracefully if it's wrong — an empty/error API response
+just means no rows get written for Stowe, not a crash — same pattern as
+every other unverified external id already in this codebase.
+
+**How it's wired in, reusing rather than duplicating**: `resorts` gained
+one new column, `ghcnd_station_id` — its own dedicated field, sibling to
+`snotel_station_triplet`/`nws_grid_id`, not an overload of either (this is
+a different source network, a one-off manual pairing rather than a
+nearest-match search, so it earns its own column rather than a
+generalized "ground truth source" abstraction built ahead of having a
+second real case to generalize from). `snotel_actuals` gained one column,
+`source` (default `'snotel'`, retroactive), rather than a parallel table:
+the existing `(resort_id, date)` unique constraint already guarantees
+exactly one ground-truth source is active per resort per day in practice,
+and every downstream reader (backtest pipelines, calibration pooling,
+the resort-detail page's "past week" chart) already queries this table by
+`resort_id`/`date` — reusing it means zero changes needed anywhere
+downstream. The depth-to-new-snow transformation itself
+(`computeDepthChangeSeries`) is imported directly from `snotel.ts`, not
+reimplemented — same math, different upstream source. Wired into the
+*existing* `/api/cron/ingest-snotel` route rather than a new Vercel Cron
+schedule entry, since this project is already one station away from
+whatever the Hobby-plan cron-count ceiling turns out to be (see Phase 0's
+punch list).
+
+**The ENSO research, and why it's honestly smaller than "full historical
+correlation"**: the natural next question, once a 70-year daily record
+exists for one specific mountain, is whether it correlates with El
+Niño/La Niña. This session tried to pull NOAA CPC's actual published ONI
+table (the authoritative source, a short/stable file) directly — blocked,
+same DNS failure as above. WebSearch only returned fragments of the
+table, with some early-year values actually disagreeing between NOAA's
+own ONI versions. Rather than reconstruct a seemingly-complete 76-season
+table from inconsistent secondary snippets — exactly the kind of
+confident-looking but unverified data this project avoids — `lib/config/
+enso-winters.ts` ships a **deliberately partial** table: only the handful
+of strong/very-strong winters (1982-83, 1997-98, 2015-16, 2023-24 El
+Niño; 1973-74, 1988-89 La Niña) this session could cross-reference with
+real multi-source confidence. `lib/analysis/mansfield-enso.ts` groups the
+stake's real data into Jul-Jun winter seasons and computes genuine
+mean/min/max seasonal snowfall per ENSO category against that table —
+every number is real and computed, not fabricated, but with typically
+3-4 seasons per category, `scripts/analyze-mansfield-enso.ts`'s own
+output says plainly that this is illustrative, not a statistically
+powered finding, and that no neutral/baseline comparison is possible
+without classifying every season (which this table doesn't attempt to
+do). To do this properly, paste NOAA's full ONI table in once you have
+live access to it — the analysis functions already work with however
+many seasons the table actually covers.
+
+**Verified**: the two new modules' pure logic (season-labeling across the
+Jul-Jun boundary, depth-change aggregation treating nulls as "no data"
+rather than zero, the year-chunked date-range pagination, mm-to-inch
+conversion, the ENSO category grouping and its honest "unmatched season"
+reporting) all have direct unit tests. The live NCEI API call path itself
+is unverified, same documented-contract-not-live-tested status as every
+other external integration in this codebase that this sandbox couldn't
+reach.
+
+**What this deliberately doesn't do**: no attempt to backfill or guess a
+complete ENSO classification for every season — stated explicitly rather
+than silently presenting a partial table as complete. Not wired into live
+scoring, alerts, or any per-resort override (Phase B.3) — this is
+research output, surfaced via an operator-run script, not a production
+input; baking a *correlation computed from ~4 data points* into Stowe's
+live scoring would be a much bigger, separate decision this session
+didn't make unilaterally. No generalized "second ground-truth network"
+built — this is one resort's one manual pairing, not SCAN/CoCoRaHS
+support (both discussed, neither built).
 
 ---
 
@@ -1339,6 +1463,46 @@ to re-read the original primer to know what's accounted for.
   `playwright-core` screenshots (default state, create-form open, and the
   resort filter actually swapping comparison numbers), removed before
   commit. 14 new tests (185 total), clean typecheck, clean build.
+- **2026-10-16** — Built Mount Mansfield stake ground truth + ENSO
+  research (Phase B.4), requested directly: *"For Stowe specifically can u
+  integrate data from the Mansfield snow stake"*, then *"Procede with
+  research also Procede with integrating the snowstake data, pay
+  particular attention to ENSO behavior around the stake as well."* Came
+  out of evaluating an East Coast resort expansion, which surfaced that
+  SNOTEL has no Northeast coverage — Mansfield's own 1954-present daily
+  record, read by NWS Burlington on Stowe's own mountain, is a far better
+  fit for Stowe specifically than any nearest-station search. Researched
+  three possible sources before building anything: declined a UVM-hosted
+  mirror (CC BY-NC-SA, non-commercial-licensed — same reasoning already
+  applied to declining OpenSnow scraping) and a volunteer-run third-party
+  compilation site (unofficial, same reasoning again), and built against
+  NOAA's own NCEI GHCND archive instead — public-domain federal data via
+  a real documented REST API, not a scrape. Tried, for real, to confirm
+  the exact station id against NOAA's own data (a direct WebFetch attempt
+  at the raw ONI file) — blocked by a DNS failure, same pattern as every
+  other NOAA/NRCS host this session, so the seeded `ghcnd_station_id`
+  (from a single forum-post citation) ships explicitly flagged as
+  unverified rather than asserted as fact, in migration `0011`'s header,
+  `resorts-seed.ts`, and the ingestion module alike. Added one column each
+  to `resorts` (`ghcnd_station_id`) and `snotel_actuals` (`source`) rather
+  than a parallel table or a renamed one — reuses the existing
+  `computeDepthChangeSeries` transformation and every downstream reader
+  (backtest, calibration, the resort page) with zero changes needed
+  there. For the ENSO piece: NOAA's actual ONI table was also unreachable,
+  and WebSearch only surfaced fragments with some disagreement between
+  NOAA's own index versions — rather than reconstruct a seemingly-complete
+  76-season table from inconsistent snippets, shipped a **deliberately
+  partial** classification (`lib/config/enso-winters.ts`) covering only
+  the handful of strong/very-strong winters found with real
+  cross-reference confidence, and built the correlation analysis
+  (`lib/analysis/mansfield-enso.ts`, run via `npm run
+  analyze:mansfield-enso`) to report real, honestly-computed statistics
+  against however much of that table actually matches real data — small
+  per-category sample sizes and all, stated as illustrative rather than
+  statistically powered, in the script's own output. Not wired into live
+  scoring, alerts, or any Phase B.3 override — research output, not a
+  production input. 19 new tests (204 total), clean typecheck, clean
+  build.
 
 ---
 
@@ -1366,7 +1530,14 @@ to differentiate a specific resort — the engine is ready whenever that
 day comes (a per-resort override on any draft, via the same new-draft
 form's second textarea), but setting one before you have resort-specific
 accuracy data to act on would be exactly the kind of unevidenced guess
-this project has avoided everywhere else. → Phase B's broader constants
+this project has avoided everywhere else. → Phase B.4 needs two things
+from you before it does anything live: confirm `ghcnd_station_id`
+(`USC00435416`) against NCEI's own station catalog, and provide a real
+`NCEI_CDO_TOKEN`. Until then `npm run seed:resorts` will just log a
+warning for the Mansfield backfill step and move on — nothing else
+breaks. Once confirmed, `npm run seed:resorts` backfills the full
+1954-present record and `npm run analyze:mansfield-enso` becomes
+meaningful to run. → Phase B's broader constants
 (alert threshold, score weights) only after the per-resort SLR case has
 run a full cycle and you're comfortable with it — if you do eventually
 want to tune one of those, do it as a draft model version first and

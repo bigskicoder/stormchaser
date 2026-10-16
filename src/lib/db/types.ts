@@ -41,6 +41,8 @@ export interface Resort {
   nws_grid_x: number | null;
   nws_grid_y: number | null;
   nws_resolved_at: string | null;
+  /** NOAA GHCND station id for a manually-researched, resort-specific ground-truth pairing (e.g. Stowe <-> the Mount Mansfield snow stake) — not resolved by a nearest-match search like snotel_station_triplet. See lib/ingestion/mansfield-stake.ts and migration 0011 for the "unverified, flagged" caveat on any seeded value. */
+  ghcnd_station_id: string | null;
   /** Operator-curated iframe-embeddable webcam URL. Never scraped — see ROADMAP.md Phase D. */
   webcam_url: string | null;
   active: boolean;
@@ -112,15 +114,20 @@ export interface SnowScore {
   created_at: string;
 }
 
+/** 'ghcnd' = NOAA GHCND (e.g. the Mount Mansfield stake, lib/ingestion/mansfield-stake.ts) — a resort-specific manual pairing, not a nearest-match network search like 'snotel'. */
+export type GroundTruthSource = "snotel" | "ghcnd";
+
 export interface SnotelActual {
   id: string;
   resort_id: string;
   station_triplet: string | null;
   date: string;
   observed_swe_mm: number | null;
-  /** Raw SNOTEL SNWD (snow depth, inches). observed_depth_change_in is the day-over-day delta of this, computed in lib/ingestion/snotel.ts. */
+  /** Raw snow depth (inches) from whichever network `source` names. observed_depth_change_in is the day-over-day delta of this, computed in lib/ingestion/snotel.ts's computeDepthChangeSeries (shared by both SNOTEL and GHCND ingestion — same transformation, different upstream source). */
   snow_depth_in: number | null;
   observed_depth_change_in: number | null;
+  /** Which ground-truth network this row came from. Defaults to 'snotel' for every row predating this field (migration 0011). */
+  source: GroundTruthSource;
   pulled_at: string;
   created_at: string;
 }

@@ -16,7 +16,12 @@ import { RESORTS_SEED } from "../src/lib/config/resorts-seed";
 import { runElevationCheckForAllResorts } from "../src/lib/ingestion/elevation";
 import { resolveSnotelStationsForAllResorts } from "../src/lib/ingestion/snotel";
 import { resolveNwsGridpointsForAllResorts } from "../src/lib/ingestion/nws";
+import { backfillMansfieldStakeForResort } from "../src/lib/ingestion/mansfield-stake";
 import { createBaselineVersionIfNoneExists } from "../src/lib/model-versions/create";
+import type { Resort } from "../src/lib/db/types";
+
+/** The Mansfield stake's own daily record starts here (see resorts-seed.ts's Stowe entry) — pulling the full history, not just a rolling window, is what makes a real ENSO-correlation analysis possible (scripts/analyze-mansfield-enso.ts). */
+const MANSFIELD_HISTORY_START_DATE = "1954-11-01";
 
 async function main() {
   const db = getServiceDb();
@@ -34,6 +39,7 @@ async function main() {
       elevation_mid_m: r.elevation_mid_m,
       elevation_summit_m: r.elevation_summit_m,
       timezone: r.timezone,
+      ghcnd_station_id: r.ghcnd_station_id ?? null,
       active: true,
     })),
     { onConflict: "slug" }
@@ -65,6 +71,22 @@ async function main() {
     console.log("NWS gridpoint resolution complete.");
   } catch (err) {
     console.warn("NWS gridpoint resolution failed (network unavailable?):", (err as Error).message);
+  }
+
+  console.log("Backfilling Mount Mansfield snow stake history for Stowe (if ghcnd_station_id resolved)...");
+  try {
+    const { data, error } = await db.from("resorts").select("*").not("ghcnd_station_id", "is", null);
+    if (error) throw error;
+    const mansfieldResorts = (data ?? []) as Resort[];
+    const endDate = new Date().toISOString().slice(0, 10);
+    for (const resort of mansfieldResorts) {
+      const result = await backfillMansfieldStakeForResort(resort, MANSFIELD_HISTORY_START_DATE, endDate);
+      if (result.error) console.warn(`  ${resort.slug}: FAILED — ${result.error}`);
+      else if (result.skipped) console.warn(`  ${resort.slug}: no data returned — verify ghcnd_station_id (see resorts-seed.ts's flagged caveat)`);
+      else console.log(`  ${resort.slug}: ${result.written} days backfilled since ${MANSFIELD_HISTORY_START_DATE}`);
+    }
+  } catch (err) {
+    console.warn("Mansfield stake backfill failed (network unavailable, or NCEI_CDO_TOKEN not set?):", (err as Error).message);
   }
 
   console.log("Seeding baseline model version (if none exists)...");

@@ -1,0 +1,43 @@
+-- Mount Mansfield snow stake integration for Stowe specifically, requested
+-- directly: "can u integrate data from the Mansfield snow stake." NOT a
+-- generalized second ground-truth network (unlike SNOTEL/SCAN's
+-- nearest-station search) — this is one specific, manually researched
+-- station pairing for one specific resort. Mount Mansfield IS Stowe's own
+-- mountain, and the stake has a daily NWS-read record back to 1954 — far
+-- longer and more locally specific than any nearest-match could offer for
+-- a Vermont resort (SNOTEL has no Northeast coverage at all; see
+-- ROADMAP.md's SNOTEL-alternative research).
+--
+-- ghcnd_station_id holds the NOAA GHCND (Global Historical Climatology
+-- Network - Daily) station identifier — its own dedicated, source-specific
+-- field, sibling to snotel_station_triplet and nws_grid_id, rather than
+-- overloading either existing one, since this is genuinely a different
+-- source network.
+--
+-- UNVERIFIED FLAG: the seeded candidate id for Stowe (USC00435416) comes
+-- from a single forum-post citation found via WebSearch this session, not
+-- independently confirmed against NCEI's own station catalog — every
+-- *.noaa.gov host this session tried (including this one) returned a DNS
+-- failure from this sandbox, same EGRESS_BLOCKED pattern documented
+-- throughout lib/ingestion/ for every other NOAA/NRCS host. Confirm via
+-- the CDO API's /stations search (requires a free token) before fully
+-- trusting this pairing. The ingestion code degrades gracefully if it's
+-- wrong — an empty/error response just means no rows get written, not a
+-- crash — same pattern as every other unverified external id in this
+-- codebase (see resorts-seed.ts's lat/lng/elevation header).
+alter table resorts add column if not exists ghcnd_station_id text;
+
+-- source distinguishes which ground-truth network a snotel_actuals row
+-- came from, now that this table holds more than just SNOTEL rows
+-- ('ghcnd' for Mansfield/NCEI-sourced rows). Defaults to 'snotel'
+-- retroactively — every row written before this migration, and every row
+-- the existing SNOTEL ingestion path writes going forward, IS a SNOTEL
+-- row. Table name deliberately stays snotel_actuals rather than a broader
+-- rename: renaming would touch every file in the backtest/accuracy/
+-- calibration pipeline that already reads this table by (resort_id,
+-- date), for a one-station addition that doesn't need a new pipeline,
+-- just a new data source feeding the same one. The existing
+-- (resort_id, date) unique constraint already guarantees exactly one
+-- ground-truth source is active per resort/day in practice — no resort
+-- has both a resolved SNOTEL station and a ghcnd_station_id.
+alter table snotel_actuals add column if not exists source text not null default 'snotel';

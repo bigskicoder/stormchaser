@@ -34,6 +34,16 @@ export interface ResortSeed {
   elevation_mid_m: number;
   elevation_summit_m: number;
   timezone: string;
+  /**
+   * NOAA GHCND station id for a manually-researched, resort-specific
+   * ground-truth pairing — not resolved by a nearest-match search like
+   * snotel_station_triplet, since this is a one-off pairing, not a
+   * network. See lib/ingestion/mansfield-stake.ts. UNVERIFIED where set:
+   * compiled from a single secondary-source citation this session, not
+   * confirmed against NCEI's own station catalog — see this file's Stowe
+   * entry below and migration 0011 for the full caveat.
+   */
+  ghcnd_station_id?: string;
 }
 
 const mid = (base: number, summit: number) => Math.round((base + summit) / 2);
@@ -59,7 +69,15 @@ export const RESORTS_SEED: ResortSeed[] = [
   // ---- EPIC PASS — Northeast ----
   { slug: "okemo", name: "Okemo", pass_affiliation: "epic", state: "VT", lat: 43.4009, lng: -72.7166, elevation_base_m: 494, elevation_mid_m: mid(494, 951), elevation_summit_m: 951, timezone: ET },
   { slug: "mount-snow", name: "Mount Snow", pass_affiliation: "epic", state: "VT", lat: 42.9601, lng: -72.9207, elevation_base_m: 566, elevation_mid_m: mid(566, 1101), elevation_summit_m: 1101, timezone: ET },
-  { slug: "stowe", name: "Stowe", pass_affiliation: "epic", state: "VT", lat: 44.5305, lng: -72.7815, elevation_base_m: 402, elevation_mid_m: mid(402, 1339), elevation_summit_m: 1339, timezone: ET },
+  // ghcnd_station_id: candidate id for the Mount Mansfield snow stake
+  // (NWS Burlington-read, daily record since 1954, ~3,900ft on Stowe's own
+  // mountain) — found via a single forum-post citation this session, NOT
+  // independently confirmed against NCEI's station catalog (every
+  // *.noaa.gov host returned a DNS failure from this sandbox). Confirm via
+  // the CDO API's /stations search before trusting this for anything
+  // beyond an initial attempt — lib/ingestion/mansfield-stake.ts degrades
+  // gracefully (no rows written, not a crash) if it's wrong.
+  { slug: "stowe", name: "Stowe", pass_affiliation: "epic", state: "VT", lat: 44.5305, lng: -72.7815, elevation_base_m: 402, elevation_mid_m: mid(402, 1339), elevation_summit_m: 1339, timezone: ET, ghcnd_station_id: "USC00435416" },
   { slug: "hunter-mountain", name: "Hunter Mountain", pass_affiliation: "epic", state: "NY", lat: 42.2029, lng: -74.2296, elevation_base_m: 549, elevation_mid_m: mid(549, 975), elevation_summit_m: 975, timezone: ET },
   { slug: "windham", name: "Windham Mountain", pass_affiliation: "ikon", state: "NY", lat: 42.3126, lng: -74.2554, elevation_base_m: 549, elevation_mid_m: mid(549, 945), elevation_summit_m: 945, timezone: ET },
   { slug: "wildcat", name: "Wildcat Mountain", pass_affiliation: "epic", state: "NH", lat: 44.2634, lng: -71.2394, elevation_base_m: 640, elevation_mid_m: mid(640, 1250), elevation_summit_m: 1250, timezone: ET },
