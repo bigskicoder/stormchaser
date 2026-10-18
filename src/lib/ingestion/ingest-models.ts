@@ -1,3 +1,4 @@
+import { PRIMARY_SCORING_ELEVATION_BAND } from "@/lib/config/constants";
 import { getServiceDb } from "@/lib/db/client";
 import type { ElevationBand, ModelName, Resort } from "@/lib/db/types";
 import {
@@ -9,6 +10,29 @@ import {
 } from "@/lib/ingestion/open-meteo";
 
 const OPEN_METEO_BASE_URL = process.env.OPEN_METEO_BASE_URL ?? "https://api.open-meteo.com";
+
+/**
+ * Stop starting new resorts after this long, so a slow run still returns
+ * and gets logged to cron_runs before Vercel's 300 s limit kills it. The
+ * 06:00 UTC runs on 2026-10-18 hit that limit with no log at all (7 of 65
+ * resorts for HRRR/GFS, 2-4 for ICON/ECMWF/GEM).
+ */
+export const INGEST_TIME_BUDGET_MS = 240_000;
+
+/**
+ * Models for the hourly ingest cron. HRRR is a new run every hour; GFS
+ * is a new run every 6 hours (00/06/12/18 UTC, on Open-Meteo about 4
+ * hours later). Pulling GFS hourly stored the
+ * same run six times over and used ~2,300 of Open-Meteo's ~10,000 free
+ * daily calls for nothing, so GFS rides along only at 05/11/17/23 UTC.
+ */
+export function hourlyModelsForUtcHour(utcHour: number): ModelName[] {
+  return utcHour % 6 === 5 ? ["hrrr", "gfs"] : ["hrrr"];
+}
+
+function timeLimitError(done: number, total: number): string {
+  return `stopped at the ${INGEST_TIME_BUDGET_MS / 1000}s time budget after ${done} of ${total} resorts`;
+}
 
 async function getActiveResorts(): Promise<Resort[]> {
   const db = getServiceDb();
@@ -26,7 +50,7 @@ function rowsFromHourlyResponse(params: {
 }) {
   const { resort, model, band, runInitTime, response } = params;
   const times = response.hourly?.time ?? [];
-  return times.map((t, i) => {
+  const rows = times.map((t, i) => {
     const tmaxC = columnTmaxC(response.hourly, i);
     return {
       resort_id: resort.id,
@@ -58,6 +82,10 @@ function rowsFromHourlyResponse(params: {
       cloud_cover_pct: response.hourly.cloud_cover?.[i] ?? null,
     };
   });
+  // Hours past a model's own horizon come back all-null (HRRR is ~48 h of
+  // the 10 days requested, so ~80% of its rows were empty). Storing them
+  // only cost space; scoring treats a missing hour the same way.
+  return rows.filter((r) => r.swe_mm != null || r.temp_c != null);
 }
 
 /**
@@ -71,10 +99,15 @@ export async function ingestModels(models: ModelName[]): Promise<{ resorts: numb
   const db = getServiceDb();
   const resorts = await getActiveResorts();
   const runInitTime = new Date().toISOString();
+  const startedAt = Date.now();
   let rowsWritten = 0;
   const errors: string[] = [];
 
-  for (const resort of resorts) {
+  for (const [done, resort] of resorts.entries()) {
+    if (Date.now() - startedAt > INGEST_TIME_BUDGET_MS) {
+      errors.unshift(timeLimitError(done, resorts.length));
+      break;
+    }
     for (const model of models) {
       for (const { band, elevationM } of bandPointsFor(resort)) {
         try {
@@ -100,9 +133,11 @@ export async function ingestModels(models: ModelName[]): Promise<{ resorts: numb
 }
 
 /**
- * Pulls ensemble members for every active resort x 3 elevation bands, and
- * upserts into ensemble_pulls. Member-count/name assumptions documented in
- * lib/ingestion/open-meteo.ts.
+ * Pulls ensemble members for every active resort at the primary scoring
+ * band only, and inserts into ensemble_pulls. Scoring reads only that band
+ * (aggregate.ts fetchEnsembleMemberTotalsForDay), and 31 members x 240 h
+ * per call makes the other two bands the bulk of the table for nothing.
+ * Member-count/name assumptions documented in lib/ingestion/open-meteo.ts.
  */
 export async function ingestEnsemble(): Promise<{ resorts: number; rowsWritten: number; errors: string[] }> {
   const db = getServiceDb();
@@ -111,12 +146,19 @@ export async function ingestEnsemble(): Promise<{ resorts: number; rowsWritten: 
   let rowsWritten = 0;
   const errors: string[] = [];
 
-  for (const resort of resorts) {
-    for (const { band, elevationM } of bandPointsFor(resort)) {
+  const startedAt = Date.now();
+
+  for (const [done, resort] of resorts.entries()) {
+    if (Date.now() - startedAt > INGEST_TIME_BUDGET_MS) {
+      errors.unshift(timeLimitError(done, resorts.length));
+      break;
+    }
+    for (const { band, elevationM } of bandPointsFor(resort).filter((p) => p.band === PRIMARY_SCORING_ELEVATION_BAND)) {
       try {
         const response = await fetchEnsembleBand({ baseUrl: OPEN_METEO_BASE_URL, resort, elevationM });
         const times = response.hourly?.time ?? [];
-        const memberKeys = Object.keys(response.hourly).filter((k) => /^precipitation_member\d+$/.test(k));
+        // The control run comes back as plain `precipitation`; it counts as member 0.
+        const memberKeys = Object.keys(response.hourly).filter((k) => /^precipitation(_member\d+)?$/.test(k));
 
         const rows: Array<{
           resort_id: string;
@@ -132,6 +174,7 @@ export async function ingestEnsemble(): Promise<{ resorts: number; rowsWritten: 
           const series = response.hourly[key] as (number | null)[] | undefined;
           if (!series) continue;
           times.forEach((t, i) => {
+            if (series[i] == null) return;
             rows.push({
               resort_id: resort.id,
               elevation_band: band,

@@ -1848,6 +1848,34 @@ to re-read the original primer to know what's accounted for.
   for the old name afterward. Clean typecheck, clean build, all existing
   tests still passing (no test asserted the old name as a string).
 
+- **2026-10-18 (06:00 UTC check): ingest volume and timing fixes.**
+  The first 06:00 UTC runs went badly. HRRR/GFS saved 7 of 65 resorts,
+  and ICON/ECMWF/GEM saved 2-4, before Vercel's 300 s limit killed both
+  runs; neither was logged, because logging happens at the end. The
+  ensemble run got 404 on all 195 calls, because it called
+  `api.open-meteo.com/v1/ensemble`, but the ensemble API is on its own
+  host (`ensemble-api.open-meteo.com`). The database was also 249 MB
+  after two days, with `forecast_pulls` at 140 MB: each hourly run wrote
+  93,600 rows, and 80% of the HRRR rows were empty hours past HRRR's
+  48 h horizon. Supabase Pro includes 8 GB, so this was a cost problem,
+  not an outage.
+  Fixes:
+  - The ensemble uses its own host.
+  - Empty hours are dropped. They are rows where both precip and
+    temperature are null.
+  - GFS is pulled once per GFS cycle, at 05/11/17/23 UTC, instead of
+    hourly.
+  - The ensemble pulls only the mid band, the only band scoring reads.
+    The control run is now kept as member 0.
+  - ICON/ECMWF/GEM moved to :10 and the ensemble to :40, so neither
+    overlaps the hourly HRRR run.
+  - Each ingest stops starting new resorts at 240 s, so a slow run is
+    still logged with a "stopped at the time budget" error.
+  Open-Meteo calls go from about 12,500 a day to about 8,000, under the
+  free tier's ~10,000. The cause of the 06:00 slowdown is not known: the
+  sandbox can't read Vercel logs, and the runs died before they could
+  write their errors. The time budget makes the next one visible.
+
 ---
 
 ## Suggested sequencing

@@ -95,6 +95,21 @@ export function buildForecastUrl(params: {
   return url.toString();
 }
 
+/**
+ * The ensemble API lives on its own host (ensemble-api.open-meteo.com, or
+ * customer-ensemble-api... with a paid key), not under api.open-meteo.com.
+ * The first live ensemble run (06:15 UTC 2026-10-18) got 404 on all 195
+ * calls because it used the forecast host. Any other base URL (a test
+ * mock, a proxy) is used as given.
+ */
+export function ensembleBaseUrl(baseUrl: string): string {
+  const u = new URL(baseUrl);
+  if (u.hostname === "api.open-meteo.com" || u.hostname === "customer-api.open-meteo.com") {
+    u.hostname = u.hostname.replace("api.open-meteo.com", "ensemble-api.open-meteo.com");
+  }
+  return u.toString();
+}
+
 export function buildEnsembleUrl(params: {
   baseUrl: string;
   resort: Resort;
@@ -102,7 +117,7 @@ export function buildEnsembleUrl(params: {
   forecastDays?: number;
 }): string {
   const { baseUrl, resort, elevationM, forecastDays = 10 } = params;
-  const url = new URL(`${baseUrl.replace(/\/$/, "")}/v1/ensemble`);
+  const url = new URL(`${ensembleBaseUrl(baseUrl).replace(/\/$/, "")}/v1/ensemble`);
   url.searchParams.set("latitude", resort.lat.toFixed(4));
   url.searchParams.set("longitude", resort.lng.toFixed(4));
   url.searchParams.set("elevation", String(Math.round(elevationM)));

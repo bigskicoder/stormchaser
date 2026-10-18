@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bandPointsFor,
   buildEnsembleUrl,
+  ensembleBaseUrl,
   buildForecastUrl,
   columnTmaxC,
   HOURLY_VARIABLES,
@@ -90,10 +91,22 @@ describe("buildForecastUrl", () => {
 describe("buildEnsembleUrl", () => {
   it("targets the ensemble endpoint with a models selector and a minimal variable set", () => {
     const url = new URL(buildEnsembleUrl({ baseUrl: "https://api.open-meteo.com", resort, elevationM: 2900 }));
+    expect(url.hostname).toBe("ensemble-api.open-meteo.com");
     expect(url.pathname).toBe("/v1/ensemble");
     expect(url.searchParams.get("models")).toBe("gfs_seamless");
     expect(url.searchParams.get("hourly")).toBe("temperature_2m,precipitation");
     expect(url.searchParams.get("elevation")).toBe("2900");
+  });
+});
+
+describe("ensembleBaseUrl", () => {
+  it("moves the public and customer forecast hosts to their ensemble hosts", () => {
+    expect(ensembleBaseUrl("https://api.open-meteo.com")).toBe("https://ensemble-api.open-meteo.com/");
+    expect(ensembleBaseUrl("https://customer-api.open-meteo.com/")).toBe("https://customer-ensemble-api.open-meteo.com/");
+  });
+
+  it("leaves any other base URL alone", () => {
+    expect(ensembleBaseUrl("http://localhost:8080")).toBe("http://localhost:8080/");
   });
 });
 
