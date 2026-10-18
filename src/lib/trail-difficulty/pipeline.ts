@@ -90,7 +90,7 @@ export function buildResortData(args: {
     const trees = o.trees ?? hasTrees(t);
     const moguls = o.moguls ?? /mogul/i.test(t.tags["piste:grooming"] ?? "");
     const widthM = o.widthM ?? widthFromOsm(t, utm, centerline) ?? (trees ? 10 : null);
-    const features = featurePoints({ trees, moguls, steepest10mDeg: pw.windowsDeg[0]!, aspectDeg: m.aspectDeg });
+    const features = featurePoints({ trees, moguls, steepest10mDeg: pw.windowsDeg[0]!, steepest30mDeg: pw.windowsDeg[1]!, aspectDeg: m.aspectDeg });
     const points = {
       pitch: round(pitchPoints(pw.effectiveDeg)),
       grooming: GROOMING_POINTS[grooming],

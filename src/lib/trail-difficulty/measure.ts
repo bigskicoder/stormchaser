@@ -26,6 +26,28 @@ export const BASELINE_M = 3;
  * a road cut into a sidehill reads as its flat bed, not its cutbank.
  */
 export const CROSS_OFFSETS_M = [-6, -3, 0, 3, 6];
+/**
+ * Cat tracks and roads (Toll Road, Main Street) cross a steep sidehill at
+ * a gentle grade: the terrain is steep but the trail isn't. Where the
+ * pitch along the mapped line (over ±ALONG_HALF_M) is well under the
+ * terrain slope, the along-line pitch is used instead: fully below
+ * TRAVERSE_RATIO_LOW of it, blending up to the terrain slope at
+ * TRAVERSE_RATIO_HIGH. A fall-line run, or a wide run mapped on a
+ * diagonal, keeps the terrain slope.
+ */
+export const ALONG_HALF_M = 10;
+export const TRAVERSE_RATIO_LOW = 0.4;
+export const TRAVERSE_RATIO_HIGH = 0.6;
+
+/** Slope a skier meets: terrain slope, or the along-line pitch on a traverse. */
+export function effectiveSlope(terrainDeg: number, alongDeg: number): number {
+  if (terrainDeg <= 0) return 0;
+  const ratio = Math.tan((alongDeg * Math.PI) / 180) / Math.tan((terrainDeg * Math.PI) / 180);
+  if (ratio >= TRAVERSE_RATIO_HIGH) return terrainDeg;
+  if (ratio <= TRAVERSE_RATIO_LOW) return alongDeg;
+  const t = (ratio - TRAVERSE_RATIO_LOW) / (TRAVERSE_RATIO_HIGH - TRAVERSE_RATIO_LOW);
+  return alongDeg + (terrainDeg - alongDeg) * t;
+}
 
 export type Elevation = (x: number, y: number) => number | null;
 
@@ -41,6 +63,8 @@ export interface TrailMeasurement {
 
 interface Sample {
   slope: number;
+  /** Terrain slope before the traverse adjustment; weights the facing direction. */
+  terrain: number;
   z: number;
   /** downhill unit-ish direction */
   dx: number;
@@ -58,7 +82,8 @@ function gradientAt(elev: Elevation, x: number, y: number): Sample | null {
   const gx = (e - w) / (2 * h);
   const gy = (n - s) / (2 * h);
   const g = Math.hypot(gx, gy);
-  return { slope: (Math.atan(g) * 180) / Math.PI, z, dx: -gx, dy: -gy };
+  const deg = (Math.atan(g) * 180) / Math.PI;
+  return { slope: deg, terrain: deg, z, dx: -gx, dy: -gy };
 }
 
 /** Median-slope sample across the trail at (x, y); (ux, uy) is the unit direction along it. */
@@ -71,7 +96,8 @@ function sampleAcross(elev: Elevation, x: number, y: number, ux: number, uy: num
     if (g) slopes.push(g.slope);
   }
   slopes.sort((a, b) => a - b);
-  return { ...centre, slope: slopes[Math.floor(slopes.length / 2)]! };
+  const median = slopes[Math.floor(slopes.length / 2)]!;
+  return { ...centre, slope: median, terrain: median };
 }
 
 /** `lines` are planar metre coordinates (e.g. UTM), one per mapped piece. */
@@ -97,13 +123,21 @@ export function measureTrail(lines: [number, number][][], elev: Elevation): Trai
       if (s) samples.push(s);
     }
     if (samples.length === 0) continue;
+    const k = Math.max(1, Math.round(ALONG_HALF_M / SAMPLE_STEP_M));
+    for (let i = 0; i < samples.length; i++) {
+      const a = Math.max(0, i - k);
+      const b = Math.min(samples.length - 1, i + k);
+      if (b === a) continue;
+      const along = (Math.atan(Math.abs(samples[b]!.z - samples[a]!.z) / ((b - a) * SAMPLE_STEP_M)) * 180) / Math.PI;
+      samples[i]!.slope = effectiveSlope(samples[i]!.slope, along);
+    }
     pieces.push({ spacingM: SAMPLE_STEP_M, slopesDeg: samples.map((s) => s.slope) });
     for (const s of samples) {
       zs.push(s.z);
       // Weight the facing direction by slope², so the steep pitches decide it.
       const len = Math.hypot(s.dx, s.dy);
       if (len > 0) {
-        const wgt = s.slope * s.slope;
+        const wgt = s.terrain * s.terrain;
         ax += (s.dx / len) * wgt;
         ay += (s.dy / len) * wgt;
       }

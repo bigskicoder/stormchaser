@@ -62,10 +62,12 @@ describe("other points", () => {
   });
 
   it("features cap at 15", () => {
-    const f = featurePoints({ trees: true, moguls: true, steepest10mDeg: 50, aspectDeg: 10 });
+    const f = featurePoints({ trees: true, moguls: true, steepest10mDeg: 50, steepest30mDeg: 42, aspectDeg: 10 });
     expect(f.points).toBe(15);
     expect(f.labels).toContain("Trees");
-    expect(featurePoints({ trees: false, moguls: false, steepest10mDeg: 30, aspectDeg: 180 }).points).toBe(0);
+    expect(featurePoints({ trees: false, moguls: false, steepest10mDeg: 30, steepest30mDeg: 28, aspectDeg: 180 }).points).toBe(0);
+    // A lone 10 m spike (a road cut) is not a cliff band.
+    expect(featurePoints({ trees: false, moguls: false, steepest10mDeg: 46, steepest30mDeg: 30, aspectDeg: null }).labels).toEqual([]);
   });
 
   it("total stays within 1-100", () => {
@@ -117,7 +119,7 @@ describe("measuring", () => {
   const tan30 = Math.tan((30 * Math.PI) / 180);
   const plane = (_x: number, y: number) => 1000 - y * tan30;
 
-  it("reads the fall-line slope and aspect of a plane, whichever way the line runs", () => {
+  it("reads the fall-line slope of a plane, and a traverse across it as nearly flat", () => {
     const across = measureTrail(
       [
         [
@@ -127,7 +129,8 @@ describe("measuring", () => {
       ],
       (_x, y) => 1000 + y * tan30
     )!;
-    expect(across.pieces[0]!.slopesDeg[10]).toBeCloseTo(30, 3);
+    // Like a cat track across a steep sidehill: the trail itself is flat.
+    expect(across.pieces[0]!.slopesDeg[10]).toBeCloseTo(0, 3);
     expect(across.aspectDeg).toBeCloseTo(180, 3);
 
     const down = measureTrail(
@@ -140,6 +143,7 @@ describe("measuring", () => {
       plane
     )!;
     expect(down.aspectDeg).toBeCloseTo(0, 3);
+    expect(down.pieces[0]!.slopesDeg[20]).toBeCloseTo(30, 3);
     expect(down.verticalM).toBeCloseTo(300 * tan30, 0);
     expect(down.profileDeg.length).toBe(30);
   });
@@ -194,5 +198,15 @@ describe("pipeline", () => {
     expect(hard!.grooming).toBe("ungroomed");
     expect(soft!.effectivePitchDeg).toBeCloseTo(12, 0);
     expect(hard!.score).toBeGreaterThan(soft!.score);
+  });
+});
+
+describe("traverses", () => {
+  it("keeps terrain slope on the fall line and a diagonal, uses along-line pitch on a road", async () => {
+    const { effectiveSlope } = await import("@/lib/trail-difficulty/measure");
+    expect(effectiveSlope(30, 30)).toBe(30);
+    const diag = (Math.atan(Math.tan((20 * Math.PI) / 180) * Math.cos(Math.PI / 4)) * 180) / Math.PI;
+    expect(effectiveSlope(20, diag)).toBe(20);
+    expect(effectiveSlope(30, 5)).toBe(5);
   });
 });

@@ -1384,7 +1384,11 @@ redeploys the site. It runs on GitHub because the sandbox can't reach
 OpenStreetMap. Scoring is in `src/lib/trail-difficulty/score.ts`.
 Slope at each 2 m sample is the median of the terrain gradient (±3 m
 baseline) at five points across the trail, so a centreline that sits on
-a cat track's cutbank still reads the track bed. Hand corrections (a
+a cat track's cutbank still reads the track bed. Where the pitch along
+the mapped line is well under the terrain slope (a road or cat track on a
+sidehill), the along-line pitch is used: the first run scored Upper Toll
+Road, a green, at 36 from the sidehill; with this it measures 14°.
+A cliff band needs a steepest 30 m of 38°+, not just a 10 m spike. Hand corrections (a
 trail's grooming, width, trees, moguls, or excluding it) go in
 `src/data/trail-difficulty/stowe.overrides.json`, keyed by trail name.
 

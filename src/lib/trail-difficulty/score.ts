@@ -33,8 +33,14 @@ export const WIDTH_FULL_M = 10;
 /** Width points when nothing in OSM gives a width. */
 export const WIDTH_UNKNOWN_POINTS = 3;
 
-/** A steepest 10 m at or above this counts as a cliff band / no-fall section. */
+/**
+ * A steepest 10 m at or above CLIFF_DEG counts as a cliff band / no-fall
+ * section, but only when the steepest 30 m is also at least
+ * CLIFF_SUPPORT_DEG: a lone 10 m spike on an otherwise moderate trail is
+ * usually the line crossing a road cut or stream bank, not a ledge.
+ */
 export const CLIFF_DEG = 45;
+export const CLIFF_SUPPORT_DEG = 38;
 
 export const FEATURE_POINTS = { trees: 6, moguls: 5, cliff: 5, northFacing: 4, northish: 2 } as const;
 
@@ -119,8 +125,9 @@ export function bearingGap(a: number, b: number): number {
 export interface FeatureInputs {
   trees: boolean;
   moguls: boolean;
-  /** Steepest 10 m, degrees. */
+  /** Steepest 10 m and 30 m, degrees. */
   steepest10mDeg: number;
+  steepest30mDeg: number;
   /** Compass bearing the steep part faces (downhill direction), or null if flat. */
   aspectDeg: number | null;
 }
@@ -141,7 +148,7 @@ export function featurePoints(f: FeatureInputs): FeatureResult {
     pts += FEATURE_POINTS.moguls;
     labels.push("Moguls");
   }
-  if (f.steepest10mDeg >= CLIFF_DEG) {
+  if (f.steepest10mDeg >= CLIFF_DEG && f.steepest30mDeg >= CLIFF_SUPPORT_DEG) {
     pts += FEATURE_POINTS.cliff;
     labels.push("Cliff band or no-fall pitch");
   }
