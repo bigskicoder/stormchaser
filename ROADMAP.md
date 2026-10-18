@@ -1319,6 +1319,32 @@ dry, confidently forecast days rank close to modest snow days. Worth a
 scoring change (for example, scaling the confidence and timing terms by
 the snowfall term) once Nick decides.
 
+
+### D.3 — Gear for the day (future idea, not approved to build)
+
+Nick, 2026-10-18: when someone taps a forecast day, suggest skis and how
+warm to dress. Not to be built until Nick says so; research and mockups
+come first, as with D.2.
+
+- **Where:** a "Gear for the day" card on the resort page, one line per
+  day, beside the score breakdown.
+- **Skis:** pick a category from new snow plus density (SLR); a crust or
+  a rain line (freezing level near the base) pushes it one category
+  narrower. Nick's picks, kept in an editable data file, not in code:
+  - 0, firm or groomed: RC4 CT, Addikt Pro
+  - 1, little new snow: Mantra 88, Optic 88, Stance Pro 82
+  - 2, a few inches or chopped: Black Ops 98, Rustler 9, QST 100
+  - 3, powder: Devastator, Sender Free 110, Hoji, QST Blank
+  Plain suggestions for now; affiliate links can come later.
+- **Clothing:** based on summit wind chill (Nick: summit is the worst
+  case), plus whether it is snowing. Rough bands: above 35°F shell plus
+  base layer; 20–35°F add a light midlayer; 5–20°F insulated jacket or
+  shell over a puffy; below 5°F or strong wind full insulation and face
+  cover. Gust forecast adds notes such as goggles or wind holds.
+- **Data:** all from the saved hourly forecast (temperature, wind and
+  gusts, freezing level, new snow, SLR). No new source needed.
+- **Still to settle:** exact snow-inch cutoffs between ski categories.
+
 ---
 
 ## Primer scope audit — full BUILD_PRIMER coverage check
