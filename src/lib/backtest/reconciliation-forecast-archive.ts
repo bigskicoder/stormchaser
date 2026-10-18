@@ -40,6 +40,7 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
+import { upsertInBatches } from "@/lib/db/batch-upsert";
 import { PRIMARY_SCORING_ELEVATION_BAND, SEASONAL_MAX_BOOTSTRAP_DEFAULT_IN } from "@/lib/config/constants";
 import { HOURLY_VARIABLES, columnTmaxC, type OpenMeteoHourlyResponse } from "@/lib/ingestion/open-meteo";
 import {
@@ -198,8 +199,8 @@ export async function runReconciliationBacktestForResort(
       }
     }
 
-    let daysCompared = 0;
     let daysSkipped = 0;
+    const rows: Record<string, unknown>[] = [];
 
     for (const [date, modelRuns] of modelRunsByDate) {
       const observedSnowfallIn = observedByDate.get(date) ?? null;
@@ -224,23 +225,24 @@ export async function runReconciliationBacktestForResort(
         continue;
       }
 
-      const { error: upsertError } = await db.from("accuracy_log").upsert(
-        {
-          resort_id: resort.id,
-          snow_score_id: null,
-          target_date: date,
-          predicted_snowfall_in: score.estimatedSnowfallIn,
-          observed_equivalent_in: observedSnowfallIn,
-          accuracy_error_in: score.estimatedSnowfallIn - observedSnowfallIn,
-          lead_time_hours_at_prediction: RECONCILIATION_BACKTEST_NOMINAL_LEAD_TIME_HOURS,
-          source: "reconciliation_forecast_backtest",
-          model_version_id: score.modelVersionId,
-        },
-        { onConflict: "resort_id,target_date,lead_time_hours_at_prediction,source,model_version_id" }
-      );
-      if (upsertError) throw upsertError;
-      daysCompared += 1;
+      rows.push({
+        resort_id: resort.id,
+        snow_score_id: null,
+        target_date: date,
+        predicted_snowfall_in: score.estimatedSnowfallIn,
+        observed_equivalent_in: observedSnowfallIn,
+        accuracy_error_in: score.estimatedSnowfallIn - observedSnowfallIn,
+        lead_time_hours_at_prediction: RECONCILIATION_BACKTEST_NOMINAL_LEAD_TIME_HOURS,
+        source: "reconciliation_forecast_backtest",
+        model_version_id: score.modelVersionId,
+      });
     }
+    const daysCompared = await upsertInBatches(
+      db,
+      "accuracy_log",
+      rows,
+      "resort_id,target_date,lead_time_hours_at_prediction,source,model_version_id"
+    );
 
     return { resortSlug: resort.slug, daysCompared, daysSkipped, modelErrors };
   } catch (err) {

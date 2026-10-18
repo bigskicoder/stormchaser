@@ -18,6 +18,14 @@
  * resumes where it stopped. The underlying backtest functions are called
  * unchanged — this only changes how the date range is sliced and paced.
  *
+ * Resorts run in parallel (--parallel=N, default 4); each resort's own
+ * chunks still run one at a time, newest first, because of the SNOTEL
+ * overlap rule below. All workers share one WeightedRateLimiter sized a
+ * little under Open-Meteo's per-minute and per-hour caps, so parallelism
+ * fills the free tier's allowance instead of tripping it. It can't beat the
+ * 10k/day cap: the full run still takes several days, but each day's share
+ * finishes in a couple of hours instead of all day.
+ *
  * Chunks run NEWEST-FIRST with a 1-day overlap. The SNOTEL backfill
  * derives each day's new-snow figure from the previous day's depth, so the
  * first day of any chunk has no delta. Overlapping by a day and walking
@@ -37,11 +45,24 @@ import { runReconciliationBacktestForResort } from "../src/lib/backtest/reconcil
 import { generateCalibrationRecommendations } from "../src/lib/calibration/generate";
 import { getActiveModelVersion, getModelVersionById } from "../src/lib/model-versions/resolve";
 import { resolveScoringConfigForResort } from "../src/lib/scoring/config";
+import { HISTORICAL_WEATHER_HOURLY_VARIABLES } from "../src/lib/ingestion/open-meteo-historical";
+import { HOURLY_VARIABLES } from "../src/lib/ingestion/open-meteo";
+import { RECONCILIATION_BACKTEST_MODELS } from "../src/lib/backtest/reconciliation-forecast-archive";
+import { mapWithConcurrency } from "../src/lib/utils/concurrency";
+import { WeightedRateLimiter, openMeteoCallWeight } from "../src/lib/utils/weighted-rate-limiter";
 import type { ModelVersion, Resort } from "../src/lib/db/types";
 
 const DATA_DIR = join(process.cwd(), "local-data");
 const PROGRESS_FILE = join(DATA_DIR, "progress.json");
-const PAUSE_BETWEEN_CHUNKS_MS = 1_000;
+const DEFAULT_PARALLEL = 4;
+// Free tier: 600/min, 5,000/hour, 10,000/day. Stay a little under the first
+// two so estimation error doesn't trip them; the daily cap is left to the
+// API's own 429, which saves progress and exits.
+const OPEN_METEO_WINDOWS = [
+  { ms: 60_000, max: 540 },
+  { ms: 3_600_000, max: 4_700 },
+];
+const CHUNK_DAYS = 367;
 const MINUTELY_WAIT_MS = 70_000;
 const HOURLY_WAIT_MS = 61 * 60_000;
 const MAX_RATE_LIMIT_RETRIES_PER_CHUNK = 3;
@@ -53,10 +74,11 @@ interface Options {
   versionId: string | null;
   skipSlr: boolean;
   skipForecast: boolean;
+  parallel: number;
 }
 
 function parseArgs(argv: string[]): Options {
-  const opts: Options = { slrYears: 40, forecastYears: 5, resortSlug: null, versionId: null, skipSlr: false, skipForecast: false };
+  const opts: Options = { slrYears: 40, forecastYears: 5, resortSlug: null, versionId: null, skipSlr: false, skipForecast: false, parallel: DEFAULT_PARALLEL };
   for (const arg of argv) {
     const [key, value] = arg.split("=", 2);
     if (key === "--years" && value) opts.slrYears = Number(value);
@@ -65,11 +87,11 @@ function parseArgs(argv: string[]): Options {
     else if (key === "--version" && value) opts.versionId = value;
     else if (key === "--skip-slr") opts.skipSlr = true;
     else if (key === "--skip-forecast") opts.skipForecast = true;
+    else if (key === "--parallel" && value) opts.parallel = Math.max(1, Math.floor(Number(value)) || 1);
   }
   return opts;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isoDaysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 
 /** [start, end] pairs, newest first, 1-year each, overlapping by one day (see file header). */
@@ -114,24 +136,32 @@ async function runChunked(
   years: number,
   versionKey: string,
   progress: Progress,
+  pacing: { parallel: number; limiter: WeightedRateLimiter; chunkWeight: number },
   runChunk: (resort: Resort, start: string, end: string) => Promise<{ errors: string[]; compared: number }>
 ) {
   const chunks = yearlyChunksNewestFirst(years);
   const total = resorts.length * chunks.length;
   let done = 0;
   let compared = 0;
+  let stopped = false;
   const failures: string[] = [];
 
-  for (const resort of resorts) {
+  await mapWithConcurrency(resorts, pacing.parallel, async (resort) => {
     for (const [start, end] of chunks) {
-      done += 1;
+      if (stopped) return;
       const key = `${label}:${versionKey}:${resort.slug}:${start}:${end}`;
-      if (progress[key]) continue;
+      if (progress[key]) {
+        done += 1;
+        continue;
+      }
 
       for (let attempt = 0; ; attempt++) {
+        await pacing.limiter.acquire(pacing.chunkWeight);
+        if (stopped) return;
         const result = await runChunk(resort, start, end);
         const limit = rateLimitKind(result.errors);
         if (!limit) {
+          done += 1;
           compared += result.compared;
           if (result.errors.length > 0) failures.push(`${resort.slug} ${start}..${end}: ${result.errors.join("; ").slice(0, 300)}`);
           progress[key] = true;
@@ -139,15 +169,18 @@ async function runChunked(
           console.log(`  [${label} ${done}/${total}] ${resort.slug} ${start}..${end}: ${result.compared} days compared${result.errors.length ? " (with errors)" : ""}`);
           break;
         }
-        if (limit === "daily") throw new DailyLimitReached();
-        if (attempt >= MAX_RATE_LIMIT_RETRIES_PER_CHUNK) throw new DailyLimitReached();
+        if (limit === "daily" || attempt >= MAX_RATE_LIMIT_RETRIES_PER_CHUNK) {
+          // Other workers finish the chunk they're on (it's saved), then stop.
+          stopped = true;
+          return;
+        }
         const wait = limit === "hourly" ? HOURLY_WAIT_MS : MINUTELY_WAIT_MS;
-        console.log(`  Open-Meteo ${limit} limit hit — waiting ${Math.round(wait / 60_000)} min, then retrying ${resort.slug} ${start}..${end}.`);
-        await sleep(wait);
+        console.log(`  Open-Meteo ${limit} limit hit — pausing all workers ${Math.round(wait / 60_000)} min, then retrying ${resort.slug} ${start}..${end}.`);
+        pacing.limiter.pauseFor(wait);
       }
-      await sleep(PAUSE_BETWEEN_CHUNKS_MS);
     }
-  }
+  });
+  if (stopped) throw new DailyLimitReached();
   return { compared, failures };
 }
 
@@ -204,12 +237,15 @@ async function main() {
   // own multiplier snapshot; the active version uses each resort's live one.
   const multipliers = opts.versionId ? version?.resort_slr_multipliers ?? null : null;
   const versionKey = version?.id ?? "defaults";
-  console.log(`Model version: ${version ? `"${version.name}" (${version.id})` : "compiled-in defaults"}. ${resorts.length} resorts with SNOTEL coverage.\n`);
+  console.log(`Model version: ${version ? `"${version.name}" (${version.id})` : "compiled-in defaults"}. ${resorts.length} resorts with SNOTEL coverage, ${opts.parallel} at a time.\n`);
+  const limiter = new WeightedRateLimiter(OPEN_METEO_WINDOWS);
 
   try {
     if (!opts.skipSlr) {
       console.log(`Step 1/4: SLR reanalysis backtest, ${opts.slrYears} years (ERA5 history + SNOTEL observations)...`);
-      const r = await runChunked("slr", resorts, opts.slrYears, versionKey, progress, async (resort, start, end) => {
+      const chunkWeight = openMeteoCallWeight(CHUNK_DAYS, HISTORICAL_WEATHER_HOURLY_VARIABLES.length);
+      const pacing = { parallel: opts.parallel, limiter, chunkWeight };
+      const r = await runChunked("slr", resorts, opts.slrYears, versionKey, progress, pacing, async (resort, start, end) => {
         const slrStrategyName = version ? resolveScoringConfigForResort(version, resort.id).slrStrategyName : undefined;
         const s = await runSlrReanalysisBacktestForResort(resort, start, end, {
           slrStrategyName,
@@ -225,7 +261,10 @@ async function main() {
     if (!opts.skipForecast) {
       console.log(`Step 2/4: forecast-archive backtest, ${opts.forecastYears} years (archived model forecasts + SNOTEL)...`);
       console.log("  Early chunks will report per-model errors where Open-Meteo's forecast archive doesn't reach back that far — expected.");
-      const r = await runChunked("forecast", resorts, opts.forecastYears, versionKey, progress, async (resort, start, end) => {
+      // One request per model per chunk.
+      const chunkWeight = openMeteoCallWeight(CHUNK_DAYS, HOURLY_VARIABLES.length, RECONCILIATION_BACKTEST_MODELS.length);
+      const pacing = { parallel: opts.parallel, limiter, chunkWeight };
+      const r = await runChunked("forecast", resorts, opts.forecastYears, versionKey, progress, pacing, async (resort, start, end) => {
         const scoringConfig = version ? resolveScoringConfigForResort(version, resort.id) : undefined;
         const s = await runReconciliationBacktestForResort(resort, start, end, {
           scoringConfig,

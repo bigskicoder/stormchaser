@@ -36,6 +36,7 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
+import { upsertInBatches } from "@/lib/db/batch-upsert";
 import type { Resort } from "@/lib/db/types";
 import { computeDepthChangeSeries } from "./snotel";
 
@@ -154,26 +155,19 @@ export async function backfillMansfieldStakeForResort(
       .map((p) => ({ date: p.date.slice(0, 10), depthIn: mmToIn(p.value) }));
     const depthChanges = computeDepthChangeSeries(depthPoints);
 
-    let written = 0;
-    for (const change of depthChanges) {
-      const { error } = await db.from("snotel_actuals").upsert(
-        {
-          resort_id: resort.id,
-          station_triplet: resort.ghcnd_station_id,
-          date: change.date,
-          // GHCND's WTEQ-equivalent element isn't pulled here — this
-          // integration is depth-only, same as SNOTEL's own
-          // observed_depth_change_in-based "new snowfall" proxy.
-          observed_swe_mm: null,
-          snow_depth_in: change.depthIn,
-          observed_depth_change_in: change.changeIn,
-          source: "ghcnd",
-        },
-        { onConflict: "resort_id,date" }
-      );
-      if (error) throw error;
-      written += 1;
-    }
+    const rows = depthChanges.map((change) => ({
+      resort_id: resort.id,
+      station_triplet: resort.ghcnd_station_id,
+      date: change.date,
+      // GHCND's WTEQ-equivalent element isn't pulled here — this
+      // integration is depth-only, same as SNOTEL's own
+      // observed_depth_change_in-based "new snowfall" proxy.
+      observed_swe_mm: null,
+      snow_depth_in: change.depthIn,
+      observed_depth_change_in: change.changeIn,
+      source: "ghcnd",
+    }));
+    const written = await upsertInBatches(db, "snotel_actuals", rows, "resort_id,date");
     return { written, skipped: false };
   } catch (err) {
     return { written: 0, skipped: false, error: (err as Error).message };

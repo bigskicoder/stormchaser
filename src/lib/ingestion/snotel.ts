@@ -38,6 +38,8 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import { upsertInBatches } from "@/lib/db/batch-upsert";
 import type { Resort } from "@/lib/db/types";
 
 const AWDB_BASE_URL = "https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1";
@@ -114,7 +116,8 @@ export async function resolveSnotelStationsForAllResorts(): Promise<void> {
   // there's no server-side spatial filter to scope this per-resort anyway.
   const stations = await fetchAllSnotelStations();
 
-  for (const resort of resorts) {
+  // Only the DB update is async here, so a handful in parallel is plenty.
+  await mapWithConcurrency(resorts, 8, async (resort) => {
     try {
       const match = findNearestStation(resort.lat, resort.lng, stations);
       await db
@@ -129,7 +132,7 @@ export async function resolveSnotelStationsForAllResorts(): Promise<void> {
       // Leave unresolved — daily SNOTEL pull will just skip this resort
       // until re-resolved. Not fatal to onboarding.
     }
-  }
+  });
 }
 
 interface AwdbDataPoint {
@@ -224,26 +227,19 @@ export async function backfillSnotelActualsForResort(
     const allDates = new Set<string>([...wteqByDate.keys(), ...depthChanges.map((d) => d.date)]);
     const changeByDate = new Map(depthChanges.map((d) => [d.date, d]));
 
-    let written = 0;
-    for (const date of allDates) {
+    const rows = Array.from(allDates, (date) => {
       const wteqValue = wteqByDate.get(date);
       const depthChange = changeByDate.get(date);
-      const observedSweMm = wteqValue != null ? wteqValue * 25.4 : null; // WTEQ reported in inches
-
-      const { error: upsertError } = await db.from("snotel_actuals").upsert(
-        {
-          resort_id: resort.id,
-          station_triplet: resort.snotel_station_triplet,
-          date,
-          observed_swe_mm: observedSweMm,
-          snow_depth_in: depthChange?.depthIn ?? null,
-          observed_depth_change_in: depthChange?.changeIn ?? null,
-        },
-        { onConflict: "resort_id,date" }
-      );
-      if (upsertError) throw upsertError;
-      written += 1;
-    }
+      return {
+        resort_id: resort.id,
+        station_triplet: resort.snotel_station_triplet,
+        date,
+        observed_swe_mm: wteqValue != null ? wteqValue * 25.4 : null, // WTEQ reported in inches
+        snow_depth_in: depthChange?.depthIn ?? null,
+        observed_depth_change_in: depthChange?.changeIn ?? null,
+      };
+    });
+    const written = await upsertInBatches(db, "snotel_actuals", rows, "resort_id,date");
     return { written, skipped: false };
   } catch (err) {
     return { written: 0, skipped: false, error: (err as Error).message };

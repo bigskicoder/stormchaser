@@ -7,10 +7,14 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { ELEVATION_DISCREPANCY_FLAG_THRESHOLD_M } from "@/lib/config/constants";
 import type { Resort } from "@/lib/db/types";
 
 const OPEN_METEO_BASE_URL = process.env.OPEN_METEO_BASE_URL ?? "https://api.open-meteo.com";
+
+/** Resorts looked up at once during onboarding; small enough to stay polite to Open-Meteo. */
+const SEED_LOOKUP_CONCURRENCY = 6;
 
 interface ElevationApiResponse {
   elevation: number[];
@@ -78,18 +82,17 @@ export async function runElevationCheckForAllResorts(): Promise<ElevationCheckRe
   if (error) throw error;
   const resorts = (data ?? []) as Resort[];
 
-  const results: ElevationCheckResult[] = [];
-  for (const resort of resorts) {
+  // One DEM lookup + one update per resort, independent of each other.
+  return mapWithConcurrency(resorts, SEED_LOOKUP_CONCURRENCY, async (resort): Promise<ElevationCheckResult> => {
     try {
-      results.push(await runElevationCheckAndPersist(resort));
+      return await runElevationCheckAndPersist(resort);
     } catch (err) {
-      results.push({
+      return {
         resortSlug: resort.slug,
         demElevationM: NaN,
         flagged: true,
         notes: `Elevation check request failed: ${(err as Error).message}`,
-      });
+      };
     }
-  }
-  return results;
+  });
 }

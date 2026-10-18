@@ -26,6 +26,7 @@
  */
 
 import { getServiceDb } from "@/lib/db/client";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import type { Resort } from "@/lib/db/types";
 import { localDateRangeToUtc, localDayBoundsContaining, utcInstantToLocalDateIso } from "@/lib/utils/timezone";
 
@@ -63,7 +64,8 @@ export async function resolveNwsGridpointsForAllResorts(): Promise<void> {
   if (error) throw error;
   const resorts = (data ?? []) as Resort[];
 
-  for (const resort of resorts) {
+  // A few at a time: NWS asks clients to keep request rates modest.
+  await mapWithConcurrency(resorts, 4, async (resort) => {
     try {
       const { gridId, gridX, gridY } = await resolveNwsGridpoint(resort.lat, resort.lng);
       await db
@@ -74,7 +76,7 @@ export async function resolveNwsGridpointsForAllResorts(): Promise<void> {
       // Leave unresolved — the benchmark ingestion cron just skips this
       // resort until re-resolved, same pattern as SNOTEL station resolution.
     }
-  }
+  });
 }
 
 interface GridValue {
