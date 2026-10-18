@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  basemapTilesForBbox,
+  bboxToLatLngBounds,
+  tileBbox,
   RADAR_FRAME_STEP_MINUTES,
   RADAR_IMAGE_HEIGHT,
   RADAR_IMAGE_WIDTH,
@@ -75,24 +76,27 @@ describe("noaaExportImageUrl", () => {
   });
 });
 
-describe("basemapTilesForBbox", () => {
-  it("covers the whole bbox, at the deepest level USGS renders", () => {
-    const bbox = radarBboxAround(39.197, -120.235);
-    const tiles = basemapTilesForBbox(bbox);
-    const zoom = Number(tiles[0]!.url.split("/").slice(-3)[0]);
-    // USGS only renders shaded relief to level 7.
-    expect(zoom).toBe(7);
-    expect(Math.min(...tiles.map((t) => t.left))).toBeLessThanOrEqual(0);
-    expect(Math.min(...tiles.map((t) => t.top))).toBeLessThanOrEqual(0);
-    expect(Math.max(...tiles.map((t) => t.left + t.width))).toBeGreaterThanOrEqual(100);
-    expect(Math.max(...tiles.map((t) => t.top + t.height))).toBeGreaterThanOrEqual(100);
-    expect(tiles.length).toBeLessThan(60);
+describe("tileBbox", () => {
+  it("matches the standard slippy-map tiling", () => {
+    const world = tileBbox(0, 0, 0)!;
+    expect(world.xmin).toBeCloseTo(-20037508.34, 1);
+    expect(world.ymax).toBeCloseTo(20037508.34, 1);
+    const nw = tileBbox(1, 0, 0)!;
+    expect(nw.xmax).toBeCloseTo(0, 6);
+    expect(nw.ymin).toBeCloseTo(0, 6);
   });
 
-  it("puts a tile containing the center point under the center", () => {
-    const bbox = radarBboxAround(40.588, -111.638);
-    const tiles = basemapTilesForBbox(bbox);
-    const center = tiles.filter((t) => t.left <= 50 && t.left + t.width > 50 && t.top <= 50 && t.top + t.height > 50);
-    expect(center).toHaveLength(1);
+  it("rejects tiles outside the grid", () => {
+    expect(tileBbox(3, 8, 0)).toBeNull();
+    expect(tileBbox(3, 0, -1)).toBeNull();
+    expect(tileBbox(2.5, 0, 0)).toBeNull();
+  });
+});
+
+describe("bboxToLatLngBounds", () => {
+  it("round-trips a resort-centered view", () => {
+    const [[s, w], [n, e]] = bboxToLatLngBounds(radarBboxAround(40.588, -111.638));
+    expect((s + n) / 2).toBeCloseTo(40.588, 0);
+    expect((w + e) / 2).toBeCloseTo(-111.638, 1);
   });
 });

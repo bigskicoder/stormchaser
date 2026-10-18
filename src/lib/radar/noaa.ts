@@ -98,12 +98,16 @@ export function bboxParam(b: MercatorBbox): string {
 }
 
 /** NOAA ImageServer exportImage URL for one frame. `timeMs` omitted = latest. */
-export function noaaExportImageUrl(bbox: MercatorBbox, timeMs?: number): string {
+export function noaaExportImageUrl(
+  bbox: MercatorBbox,
+  timeMs?: number,
+  size: [number, number] = [RADAR_IMAGE_WIDTH, RADAR_IMAGE_HEIGHT]
+): string {
   const params = new URLSearchParams({
     bbox: bboxParam(bbox),
     bboxSR: "3857",
     imageSR: "3857",
-    size: `${RADAR_IMAGE_WIDTH},${RADAR_IMAGE_HEIGHT}`,
+    size: `${size[0]},${size[1]}`,
     format: "png32",
     transparent: "true",
     f: "image",
@@ -113,7 +117,10 @@ export function noaaExportImageUrl(bbox: MercatorBbox, timeMs?: number): string 
 }
 
 /** IEM WMS GetMap URL for the latest NEXRAD composite over the same bbox. */
-export function iemLatestImageUrl(bbox: MercatorBbox): string {
+export function iemLatestImageUrl(
+  bbox: MercatorBbox,
+  size: [number, number] = [RADAR_IMAGE_WIDTH, RADAR_IMAGE_HEIGHT]
+): string {
   const params = new URLSearchParams({
     SERVICE: "WMS",
     VERSION: "1.1.1",
@@ -122,8 +129,8 @@ export function iemLatestImageUrl(bbox: MercatorBbox): string {
     STYLES: "",
     SRS: "EPSG:3857",
     BBOX: bboxParam(bbox),
-    WIDTH: String(RADAR_IMAGE_WIDTH),
-    HEIGHT: String(RADAR_IMAGE_HEIGHT),
+    WIDTH: String(size[0]),
+    HEIGHT: String(size[1]),
     FORMAT: "image/png",
     TRANSPARENT: "true",
   });
@@ -157,57 +164,39 @@ export function framesFromTimeExtent(extent: unknown): number[] {
  * no storm was nearby; relief makes the mountains and valleys readable.
  */
 export const USGS_RELIEF_TILES =
-  "https://basemap.nationalmap.gov/arcgis/rest/services/USGSShadedReliefOnly/MapServer/tile";
+  "https://basemap.nationalmap.gov/arcgis/rest/services/USGSShadedReliefOnly/MapServer/tile/{z}/{y}/{x}";
 
-const TILE_PX = 256;
-const MIN_TILE_ZOOM = 4;
 /**
- * The deepest level USGS actually renders for this service. Its tileInfo
+ * The deepest level USGS actually renders for the relief. Its tileInfo
  * lists levels 0-23, but maxScale is 1:4,622,324 (level 7), and deeper
- * tiles fail; the first live deploy asked for level 9 and showed broken
- * images (2026-10-18). Level 7 is about 1.2 km per pixel, so at storm
- * scale the relief is upscaled about 2x, which soft shading tolerates.
+ * tiles fail; the first deploy asked for level 9 and showed broken images
+ * (2026-10-18). The map zooms past this by upscaling level-7 tiles.
  */
-const MAX_TILE_ZOOM = 7;
+export const USGS_RELIEF_MAX_NATIVE_ZOOM = 7;
 
-export interface BasemapTile {
-  url: string;
-  /** Position and size as percentages of the bbox, so tiles scale with the stage. */
-  left: number;
-  top: number;
-  width: number;
-  height: number;
+/** Zoom range of the pannable radar map: about the whole West at 4, a few valleys at 11. */
+export const RADAR_MIN_ZOOM = 4;
+export const RADAR_MAX_ZOOM = 11;
+
+export const RADAR_TILE_PX = 256;
+
+/** Web Mercator bbox of slippy-map tile z/x/y; null when the tile is out of range. */
+export function tileBbox(z: number, x: number, y: number): MercatorBbox | null {
+  if (![z, x, y].every(Number.isInteger) || z < 0 || z > 22) return null;
+  const n = 2 ** z;
+  if (x < 0 || x >= n || y < 0 || y >= n) return null;
+  const tileM = (2 * MERCATOR_LIMIT_M) / n;
+  const xmin = x * tileM - MERCATOR_LIMIT_M;
+  const ymax = MERCATOR_LIMIT_M - y * tileM;
+  return { xmin, ymin: ymax - tileM, xmax: xmin + tileM, ymax };
 }
 
-/**
- * The tiles covering a bbox, at the zoom where a tile pixel is no larger
- * than a stage pixel at `widthPx`, capped at MAX_TILE_ZOOM (so relief is
- * slightly scaled down where it can be, and upscaled past the cap).
- */
-export function basemapTilesForBbox(bbox: MercatorBbox, widthPx = RADAR_IMAGE_WIDTH): BasemapTile[] {
-  const world = 2 * MERCATOR_LIMIT_M;
-  const metersPerPx = (bbox.xmax - bbox.xmin) / widthPx;
-  const zoom = Math.max(MIN_TILE_ZOOM, Math.min(MAX_TILE_ZOOM, Math.ceil(Math.log2(world / (TILE_PX * metersPerPx)))));
-  const tileM = world / 2 ** zoom;
-  const x0 = Math.floor((bbox.xmin + MERCATOR_LIMIT_M) / tileM);
-  const x1 = Math.floor((bbox.xmax + MERCATOR_LIMIT_M) / tileM);
-  const y0 = Math.floor((MERCATOR_LIMIT_M - bbox.ymax) / tileM);
-  const y1 = Math.floor((MERCATOR_LIMIT_M - bbox.ymin) / tileM);
-  const spanX = bbox.xmax - bbox.xmin;
-  const spanY = bbox.ymax - bbox.ymin;
-  const tiles: BasemapTile[] = [];
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const tileXmin = x * tileM - MERCATOR_LIMIT_M;
-      const tileYmax = MERCATOR_LIMIT_M - y * tileM;
-      tiles.push({
-        url: `${USGS_RELIEF_TILES}/${zoom}/${y}/${x}`,
-        left: ((tileXmin - bbox.xmin) / spanX) * 100,
-        top: ((bbox.ymax - tileYmax) / spanY) * 100,
-        width: (tileM / spanX) * 100,
-        height: (tileM / spanY) * 100,
-      });
-    }
-  }
-  return tiles;
+/** WGS84 [[south, west], [north, east]] of a Mercator bbox, for fitting the map to it. */
+export function bboxToLatLngBounds(b: MercatorBbox): [[number, number], [number, number]] {
+  const toLng = (x: number) => (x / EARTH_RADIUS_M) * (180 / Math.PI);
+  const toLat = (y: number) => (2 * Math.atan(Math.exp(y / EARTH_RADIUS_M)) - Math.PI / 2) * (180 / Math.PI);
+  return [
+    [toLat(b.ymin), toLng(b.xmin)],
+    [toLat(b.ymax), toLng(b.xmax)],
+  ];
 }

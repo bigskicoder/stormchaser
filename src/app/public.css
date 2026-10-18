@@ -257,32 +257,37 @@
   background: #111c30;
   overflow: hidden;
 }
-.ps-radar-stage > svg,
-.ps-radar-stage > img {
+.ps-radar-map {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  background: #111c30;
+  font: inherit;
 }
-.ps-radar-stage > img {
-  image-rendering: auto;
-  opacity: 0.9;
+.ps-radar-map:focus-visible {
+  outline: 2px solid var(--powder);
+  outline-offset: -2px;
 }
-/* USGS shaded relief, darkened to sit under the navy panel so radar colors stay the brightest thing on it. */
-.ps-radar-relief {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
-.ps-radar-relief img {
-  position: absolute;
-  max-width: none;
-  /* USGS relief is mostly near-white with shading in the mountains; this lands flat ground on dark slate. */
+/* USGS relief is mostly near-white with shading in the mountains; this lands flat ground on dark slate. */
+.ps-radar-map .ps-relief-tile {
   filter: grayscale(1) brightness(0.42) contrast(1.25);
   opacity: 0.85;
 }
+.ps-radar-map .leaflet-control-zoom a {
+  background: rgba(15, 27, 42, 0.85);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.ps-radar-map .leaflet-control-zoom a:hover {
+  background: var(--ink);
+}
+.ps-radar-marker {
+  background: none;
+  border: 0;
+}
 .ps-radar-quiet {
   position: absolute;
+  z-index: 500;
+  pointer-events: none;
   left: 12px;
   top: 12px;
   background: rgba(11, 18, 32, 0.82);
@@ -293,6 +298,8 @@
 }
 .ps-radar-pin {
   position: absolute;
+  left: 0;
+  top: 0;
   transform: translate(-7px, -50%);
   display: flex;
   align-items: center;
@@ -314,14 +321,14 @@
   border-radius: 50%;
   background: #fff;
 }
-.ps-radar-pin[aria-pressed="true"] {
+.ps-radar-pin.selected {
   font-size: 14px;
   font-weight: 800;
   background: var(--ink);
   border-color: #fff;
   z-index: 2;
 }
-.ps-radar-pin[aria-pressed="true"] i {
+.ps-radar-pin.selected i {
   width: 10px;
   height: 10px;
   background: var(--powder);
@@ -338,6 +345,7 @@
 }
 .ps-radar-msg {
   position: absolute;
+  z-index: 500;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
@@ -351,6 +359,8 @@
 }
 .ps-radar-legend {
   position: absolute;
+  z-index: 500;
+  pointer-events: none;
   right: 10px;
   bottom: 10px;
   display: flex;

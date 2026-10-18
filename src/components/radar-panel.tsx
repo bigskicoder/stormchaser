@@ -1,16 +1,17 @@
 "use client";
 
+import "leaflet/dist/leaflet.css";
+import type * as Leaflet from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { feature } from "topojson-client";
 import type { Topology, GeometryCollection } from "topojson-specification";
 import {
-  RADAR_IMAGE_HEIGHT,
-  RADAR_IMAGE_WIDTH,
-  basemapTilesForBbox,
-  bboxParam,
-  projectToBbox,
+  RADAR_MAX_ZOOM,
+  RADAR_MIN_ZOOM,
+  USGS_RELIEF_MAX_NATIVE_ZOOM,
+  USGS_RELIEF_TILES,
+  bboxToLatLngBounds,
   radarBboxAround,
-  type MercatorBbox,
 } from "@/lib/radar/noaa";
 
 export interface RadarPin {
@@ -31,80 +32,52 @@ function loadFrames() {
   return framesPromise;
 }
 
-type StateRings = [number, number][][];
-let statesPromise: Promise<StateRings> | null = null;
-function loadStateRings(): Promise<StateRings> {
+let statesPromise: Promise<GeoJSON.FeatureCollection | null> | null = null;
+function loadStates(): Promise<GeoJSON.FeatureCollection | null> {
   statesPromise ??= fetch("/us-states-10m.json")
     .then((r) => r.json())
-    .then((topo: Topology) => {
-      const fc = feature(topo, topo.objects.states as GeometryCollection) as unknown as {
-        features: { geometry: { type: string; coordinates: unknown } }[];
-      };
-      const rings: StateRings = [];
-      for (const f of fc.features) {
-        if (f.geometry.type === "Polygon") rings.push(...(f.geometry.coordinates as [number, number][][]));
-        else if (f.geometry.type === "MultiPolygon")
-          for (const poly of f.geometry.coordinates as [number, number][][][]) rings.push(...poly);
-      }
-      return rings;
-    })
-    .catch(() => []);
+    .then((topo: Topology) => feature(topo, topo.objects.states as GeometryCollection) as unknown as GeoJSON.FeatureCollection)
+    .catch(() => null);
   return statesPromise;
-}
-
-function ringsToPath(rings: StateRings, bbox: MercatorBbox): string {
-  const out: string[] = [];
-  for (const ring of rings) {
-    let d = "";
-    ring.forEach(([lng, lat], i) => {
-      const [x, y] = projectToBbox(lng, lat, bbox);
-      d += `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
-    });
-    out.push(d + "Z");
-  }
-  return out.join("");
 }
 
 /**
  * Resorts a few km apart (Alta, Snowbird, Brighton) land on top of each
- * other at storm scale. The selected pin always keeps its label; any other
+ * other when zoomed out. The selected pin always keeps its label; any other
  * pin whose label would overlap one already placed shows as a bare dot
  * (still clickable, name in its tooltip). Widths are estimated from the
- * name length at the pins' font size.
+ * name length at the pins' font size. Positions are container pixels.
  */
-function declutter<T extends { slug: string; name: string; left: number; top: number }>(
+function declutter<T extends { slug: string; name: string; x: number; y: number }>(
   pins: T[],
   selectedSlug: string | null,
   stageWidth: number
-): (T & { labeled: boolean })[] {
-  const stageHeight = (stageWidth * RADAR_IMAGE_HEIGHT) / RADAR_IMAGE_WIDTH;
+): (T & { labeled: boolean; flip: boolean })[] {
   const ordered = [...pins].sort((a, b) => Number(b.slug === selectedSlug) - Number(a.slug === selectedSlug));
   const boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
-  const out = ordered.map((p) => {
+  return ordered.map((p) => {
     const selected = p.slug === selectedSlug;
-    const x = (p.left / 100) * stageWidth - 7;
-    const y = (p.top / 100) * stageHeight;
+    const x = p.x - 7;
     const w = p.name.length * (selected ? 8 : 6.8) + 30;
     // Labels near the right edge open leftward (the "flip" class), so their box does too.
-    const box = p.left > 68 ? { x0: x - w + 14, x1: x + 18, y0: y - 13, y1: y + 13 } : { x0: x - 4, x1: x + w, y0: y - 13, y1: y + 13 };
+    const flip = p.x > stageWidth * 0.68;
+    const box = flip ? { x0: x - w + 14, x1: x + 18, y0: p.y - 13, y1: p.y + 13 } : { x0: x - 4, x1: x + w, y0: p.y - 13, y1: p.y + 13 };
     const clash = boxes.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0);
     if (!clash || selected) boxes.push(box);
-    return { ...p, labeled: selected || !clash };
+    return { ...p, labeled: selected || !clash, flip };
   });
-  // Selected pin last so it paints over its neighbors.
-  return out.reverse();
 }
 
 /**
- * Whether a loaded radar frame has any echoes at all. Frames come from our
- * own /api/radar proxy (same origin), so the canvas isn't tainted. A tiny
+ * Whether a loaded radar tile has any echoes at all. Tiles come from our
+ * own /api/radar proxy (same origin), so the canvas isn't tainted. A small
  * downscale is enough: any colored pixel survives as nonzero alpha.
  */
-function frameHasEchoes(img: HTMLImageElement): boolean | null {
+function tileHasEchoes(img: HTMLImageElement): boolean | null {
   try {
     const canvas = document.createElement("canvas");
-    canvas.width = 192;
-    canvas.height = 108;
+    canvas.width = 64;
+    canvas.height = 64;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -116,15 +89,52 @@ function frameHasEchoes(img: HTMLImageElement): boolean | null {
   }
 }
 
+// Tiles never change once loaded, so each is checked once.
+const echoCache = new WeakMap<HTMLImageElement, boolean | null>();
+
+/**
+ * Whether the radar layer shows nothing anywhere in view: null while its
+ * tiles are still loading or can't be read, otherwise true/false. Reads
+ * the loaded tile images directly rather than tracking load events, which
+ * race with pans and frame changes.
+ */
+function layerIsQuiet(layer: Leaflet.TileLayer, map: Leaflet.Map): boolean | null {
+  if (layer.isLoading()) return null;
+  const view = map.getContainer().getBoundingClientRect();
+  const imgs = Array.from(layer.getContainer()?.querySelectorAll<HTMLImageElement>("img.leaflet-tile-loaded") ?? []).filter((img) => {
+    const r = img.getBoundingClientRect();
+    return r.right > view.left && r.left < view.right && r.bottom > view.top && r.top < view.bottom;
+  });
+  if (imgs.length === 0) return null;
+  for (const img of imgs) {
+    if (!echoCache.has(img)) echoCache.set(img, tileHasEchoes(img));
+    const has = echoCache.get(img);
+    if (has == null) return null;
+    if (has) return false;
+  }
+  return true;
+}
+
 function timeLabel(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+const RADAR_OPACITY = 0.85;
+
 /**
- * NOAA MRMS radar around one point, as a 2-hour loop. The basemap is our
- * own state outlines (no third-party tiles, no API key); resort pins sit on
- * top and re-center the view when clicked. See lib/radar/noaa.ts for the
- * feed choice and its fallback.
+ * NOAA MRMS radar as a pannable, zoomable map with a 2-hour loop. It opens
+ * on about 400 km around `center` and flies there again whenever `center`
+ * changes. Terrain is USGS shaded relief with state lines on top; resort
+ * pins re-center the view when clicked. See lib/radar/noaa.ts for the feed
+ * choice and its fallback.
+ *
+ * Built on Leaflet directly (loaded in an effect, since it needs `window`)
+ * rather than react-leaflet, so the map instance and its layers are owned
+ * in one place and survive re-renders.
  */
 export function RadarPanel({
   center,
@@ -141,83 +151,202 @@ export function RadarPanel({
   title: string;
   subtitle?: string;
 }) {
-  const bbox = useMemo(() => radarBboxAround(center.lat, center.lng), [center.lat, center.lng]);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<Leaflet.Map | null>(null);
+  const LRef = useRef<typeof Leaflet | null>(null);
+  const frameLayers = useRef<Map<string, Leaflet.TileLayer>>(new Map());
+  const markerLayer = useRef<Leaflet.LayerGroup | null>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
+  const [ready, setReady] = useState(false);
+  const [viewTick, setViewTick] = useState(0);
   const [frames, setFrames] = useState<FramesState>({ status: "loading" });
-  const [rings, setRings] = useState<StateRings>([]);
   const [index, setIndex] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [failed, setFailed] = useState<Set<string>>(new Set());
-  const [echoes, setEchoes] = useState<Record<string, boolean | null>>({});
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [stageWidth, setStageWidth] = useState(RADAR_IMAGE_WIDTH);
+  const [preload, setPreload] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [quietState, setQuietState] = useState<boolean | null>(null);
 
-  useEffect(() => {
-    const el = stageRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => entry && setStageWidth(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const frameList = frames.status === "ready" ? frames.frames : [];
+  const hasLoop = frames.status === "ready" && frames.source === "noaa" && frameList.length > 1;
+  const current = index ?? frameList.length - 1;
+  // Frame keys: a timestamp, or "latest" when only IEM's latest composite is available.
+  const frameKeys = useMemo(
+    () => (frames.status !== "ready" ? [] : hasLoop ? frameList.map(String) : ["latest"]),
+    [frames.status, hasLoop, frameList]
+  );
+  const shownKey = frameKeys[Math.min(Math.max(current, 0), frameKeys.length - 1)];
 
   useEffect(() => {
     let live = true;
     loadFrames().then((f) => live && setFrames({ status: "ready", ...f }));
-    loadStateRings().then((r) => live && setRings(r));
     return () => {
       live = false;
     };
   }, []);
 
-  const frameList = frames.status === "ready" ? frames.frames : [];
-  const hasLoop = frameList.length > 1;
-  const current = index ?? frameList.length - 1;
-
-  // Re-centering starts back on the latest frame.
+  // Create the map once.
   useEffect(() => {
-    setIndex(null);
-    setPlaying(false);
-    setFailed(new Set());
-    setEchoes({});
-  }, [bbox]);
+    let disposed = false;
+    (async () => {
+      const L = (await import("leaflet")).default;
+      if (disposed || !stageRef.current || mapRef.current) return;
+      LRef.current = L;
+      const map = L.map(stageRef.current, {
+        minZoom: RADAR_MIN_ZOOM,
+        maxZoom: RADAR_MAX_ZOOM,
+        zoomSnap: 0.25,
+        attributionControl: false,
+        // Wheel zoom only after the map is clicked, so scrolling the page past it doesn't zoom it.
+        scrollWheelZoom: false,
+      });
+      map.zoomControl.setPosition("topright");
+      map.fitBounds(bboxToLatLngBounds(radarBboxAround(center.lat, center.lng)));
+      L.tileLayer(USGS_RELIEF_TILES, {
+        maxNativeZoom: USGS_RELIEF_MAX_NATIVE_ZOOM,
+        maxZoom: RADAR_MAX_ZOOM,
+        className: "ps-relief-tile",
+      }).addTo(map);
+      map.createPane("ps-states").style.zIndex = "350";
+      map.createPane("ps-radar").style.zIndex = "360";
+      loadStates().then((fc) => {
+        if (!fc || disposed) return;
+        L.geoJSON(fc, {
+          pane: "ps-states",
+          interactive: false,
+          style: { color: "rgba(226, 236, 255, 0.6)", weight: 1.2, fill: false },
+        }).addTo(map);
+      });
+      markerLayer.current = L.layerGroup().addTo(map);
+      map.on("click", () => map.scrollWheelZoom.enable());
+      map.on("mouseout", () => map.scrollWheelZoom.disable());
+      map.on("zoomend moveend resize", () => setViewTick((t) => t + 1));
+      mapRef.current = map;
+      setReady(true);
+    })();
+    return () => {
+      disposed = true;
+      mapRef.current?.remove();
+      mapRef.current = null;
+      frameLayers.current.clear();
+    };
+    // The map is created once; re-centering is handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fly to a new center when the selected resort changes.
+  const centerKey = `${center.lat},${center.lng}`;
+  const firstCenter = useRef(true);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (firstCenter.current) {
+      firstCenter.current = false;
+      return;
+    }
+    map.flyToBounds(bboxToLatLngBounds(radarBboxAround(center.lat, center.lng)), { duration: 0.8 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centerKey, ready]);
+
+  const shownKeyRef = useRef(shownKey);
+  shownKeyRef.current = shownKey;
+  const checkQuiet = () => {
+    const map = mapRef.current;
+    const layer = shownKeyRef.current ? frameLayers.current.get(shownKeyRef.current) : undefined;
+    setQuietState(map && layer ? layerIsQuiet(layer, map) : null);
+  };
+  useEffect(checkQuiet, [viewTick, shownKey]);
+
+  // Radar layers: the shown frame always; every frame once the loop is played or scrubbed.
+  useEffect(() => {
+    const L = LRef.current;
+    const map = mapRef.current;
+    if (!L || !map || frameKeys.length === 0) return;
+    const wanted = preload ? frameKeys : shownKey ? [shownKey] : [];
+    for (const key of wanted) {
+      if (frameLayers.current.has(key)) continue;
+      const url = key === "latest" ? "/api/radar/tile/{z}/{x}/{y}" : `/api/radar/tile/{z}/{x}/{y}?t=${key}`;
+      const layer = L.tileLayer(url, {
+        pane: "ps-radar",
+        opacity: 0,
+        minZoom: RADAR_MIN_ZOOM,
+        maxZoom: RADAR_MAX_ZOOM,
+        // Hidden frames keep their tiles so the loop plays from cache.
+        keepBuffer: 4,
+      });
+      let loaded = 0;
+      let errors = 0;
+      layer.on("tileload", () => {
+        loaded++;
+      });
+      layer.on("tileerror", () => {
+        errors++;
+      });
+      layer.on("load", () => {
+        if (key === shownKeyRef.current) {
+          setFailed(errors > 0 && loaded === 0);
+          checkQuiet();
+        }
+        loaded = 0;
+        errors = 0;
+      });
+      layer.addTo(map);
+      frameLayers.current.set(key, layer);
+    }
+    for (const [key, layer] of frameLayers.current) layer.setOpacity(key === shownKey ? RADAR_OPACITY : 0);
+    checkQuiet();
+    // checkQuiet only reads refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, frameKeys, shownKey, preload]);
 
   useEffect(() => {
     if (!playing || !hasLoop) return;
-    timer.current = setInterval(() => {
+    const timer = setInterval(() => {
       setIndex((i) => {
         const at = i ?? frameList.length - 1;
         return at >= frameList.length - 1 ? 0 : at + 1;
       });
-    }, 550);
-    return () => {
-      if (timer.current) clearInterval(timer.current);
-    };
+    }, 650);
+    return () => clearInterval(timer);
   }, [playing, hasLoop, frameList.length]);
 
-  const statePath = useMemo(() => ringsToPath(rings, bbox), [rings, bbox]);
-  const tiles = useMemo(() => basemapTilesForBbox(bbox), [bbox]);
-
-  const placedPins = declutter(
-    pins
+  // Resort pins as Leaflet markers, re-decluttered whenever the view changes.
+  useEffect(() => {
+    const L = LRef.current;
+    const map = mapRef.current;
+    const group = markerLayer.current;
+    if (!L || !map || !group) return;
+    group.clearLayers();
+    const size = map.getSize();
+    const onScreen = pins
       .map((p) => {
-        const [x, y] = projectToBbox(p.lng, p.lat, bbox);
-        return { ...p, left: (x / RADAR_IMAGE_WIDTH) * 100, top: (y / RADAR_IMAGE_HEIGHT) * 100 };
+        const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+        return { ...p, x: pt.x, y: pt.y };
       })
-      .filter((p) => p.left > 2 && p.left < 92 && p.top > 4 && p.top < 96),
-    selectedSlug,
-    stageWidth
-  );
+      .filter((p) => p.x > -40 && p.x < size.x + 40 && p.y > -20 && p.y < size.y + 20);
+    for (const p of declutter(onScreen, selectedSlug, size.x)) {
+      const selected = p.slug === selectedSlug;
+      const cls = `ps-radar-pin${p.labeled ? (p.flip ? " flip" : "") : " dot"}${selected ? " selected" : ""}`;
+      const icon = L.divIcon({
+        className: "ps-radar-marker",
+        html: `<span class="${cls}" title="${p.labeled ? "" : escapeHtml(p.name)}"><i></i>${p.labeled ? escapeHtml(p.name) : ""}</span>`,
+        iconSize: [0, 0],
+      });
+      const marker = L.marker([p.lat, p.lng], {
+        icon,
+        keyboard: !!onSelectRef.current,
+        title: p.name,
+        alt: p.name,
+        zIndexOffset: selected ? 1000 : p.labeled ? 100 : 0,
+        interactive: !!onSelectRef.current,
+      });
+      marker.on("click", () => onSelectRef.current?.(p.slug));
+      group.addLayer(marker);
+    }
+  }, [ready, pins, selectedSlug, viewTick]);
 
-  const imageSrcs =
-    frames.status !== "ready"
-      ? []
-      : frames.source === "noaa" && frameList.length > 0
-        ? frameList.map((t) => `/api/radar/image?bbox=${bboxParam(bbox)}&t=${t}`)
-        : [`/api/radar/image?bbox=${bboxParam(bbox)}`];
-  const shown = Math.min(current, imageSrcs.length - 1);
-  const allFailed = imageSrcs.length > 0 && imageSrcs.every((s) => failed.has(s));
-  const shownSrc = imageSrcs[shown];
-  const quiet = shownSrc != null && echoes[shownSrc] === false;
+  const quiet = quietState === true;
   const timeText =
     frames.status !== "ready"
       ? "loading"
@@ -233,60 +362,14 @@ export function RadarPanel({
           {subtitle && <p>{subtitle}</p>}
         </div>
       </div>
-      <div className="ps-radar-stage" role="group" aria-labelledby="radar-title" ref={stageRef}>
-        <div className="ps-radar-relief" aria-hidden="true">
-          {tiles.map((t) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={t.url}
-              src={t.url}
-              alt=""
-              // A tile that fails to load is hidden rather than shown as a broken image.
-              onError={(e) => (e.currentTarget.style.visibility = "hidden")}
-              // +1px hides hairline seams where scaled tiles meet.
-              style={{ left: `${t.left}%`, top: `${t.top}%`, width: `calc(${t.width}% + 1px)`, height: `calc(${t.height}% + 1px)` }}
-            />
-          ))}
-        </div>
-        <svg viewBox={`0 0 ${RADAR_IMAGE_WIDTH} ${RADAR_IMAGE_HEIGHT}`} preserveAspectRatio="none" aria-hidden="true">
-          <path d={statePath} fill="none" stroke="rgba(226, 236, 255, 0.55)" strokeWidth={1.4} />
-        </svg>
-        {imageSrcs.map((src, i) => (
-          // Every frame stays mounted so the loop plays from cache; only one is visible.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={src}
-            src={src}
-            alt={i === shown ? `Radar around ${title.replace(/^Radar (around )?/, "")} at ${timeText}` : ""}
-            aria-hidden={i === shown ? undefined : true}
-            style={{ visibility: i === shown ? "visible" : "hidden" }}
-            onError={() => setFailed((f) => new Set(f).add(src))}
-            onLoad={(e) => {
-              const has = frameHasEchoes(e.currentTarget);
-              setEchoes((m) => ({ ...m, [src]: has }));
-            }}
-          />
-        ))}
-        {placedPins.map((p) => (
-          <button
-            key={p.slug}
-            type="button"
-            className={`ps-radar-pin${p.labeled ? (p.left > 68 ? " flip" : "") : " dot"}`}
-            style={{ left: `${p.left}%`, top: `${p.top}%` }}
-            aria-pressed={p.slug === selectedSlug}
-            aria-label={p.labeled ? undefined : p.name}
-            title={p.labeled ? undefined : p.name}
-            onClick={() => onSelect?.(p.slug)}
-            disabled={!onSelect}
-          >
-            <i aria-hidden="true" />
-            {p.labeled && p.name}
-          </button>
-        ))}
-        {quiet && !allFailed && (
-          <div className="ps-radar-quiet">No rain or snow on radar in this area {current === frameList.length - 1 || !hasLoop ? "right now" : "at this time"}.</div>
+      <div className="ps-radar-stage">
+        <div className="ps-radar-map" ref={stageRef} role="region" aria-labelledby="radar-title" />
+        {quiet && !failed && (
+          <div className="ps-radar-quiet">
+            No rain or snow on radar in this view {current === frameList.length - 1 || !hasLoop ? "right now" : "at this time"}.
+          </div>
         )}
-        {allFailed && <div className="ps-radar-msg">Radar isn&rsquo;t loading right now. Try again in a few minutes.</div>}
+        {failed && <div className="ps-radar-msg">Radar isn&rsquo;t loading right now. Try again in a few minutes.</div>}
         <div className="ps-radar-legend" aria-hidden="true">
           Light <span className="scale" /> Heavy
         </div>
@@ -295,7 +378,10 @@ export function RadarPanel({
         <button
           type="button"
           className="ps-radar-play"
-          onClick={() => setPlaying((p) => !p)}
+          onClick={() => {
+            setPreload(true);
+            setPlaying((p) => !p);
+          }}
           disabled={!hasLoop}
           aria-label={playing ? "Pause radar loop" : "Play radar loop"}
         >
@@ -320,6 +406,7 @@ export function RadarPanel({
             value={hasLoop ? current : 0}
             disabled={!hasLoop}
             onChange={(e) => {
+              setPreload(true);
               setPlaying(false);
               setIndex(Number(e.target.value));
             }}
@@ -327,7 +414,7 @@ export function RadarPanel({
         </label>
       </div>
       <p className="ps-radar-foot">
-        Radar:{" "}
+        Drag to pan; use + and &minus; or pinch to zoom (click the map first to zoom with the scroll wheel). Radar:{" "}
         <a href="https://www.nssl.noaa.gov/projects/mrms/" target="_blank" rel="noreferrer">
           NOAA/NWS MRMS
         </a>

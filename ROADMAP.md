@@ -1327,6 +1327,20 @@ the snowfall term) once Nick decides.
 
 Not verifiable from the sandbox: its proxy blocks the USGS tiles, so the screenshots used stand-in relief. Nick still needs to confirm the real relief in a browser. The first deploy showed broken images. USGS's service metadata lists levels 0-23, but its maxScale stops at level 7, and the code had asked for level 9. Tiles are now capped at level 7 (upscaled about 2x), and any tile that fails to load is hidden.
 
+**Pannable, zoomable radar (Nick, 2026-10-18: "we also need the radar to be pannable/zoomable").** `RadarPanel` is now a Leaflet map (leaflet 1.9.4, used directly rather than through react-leaflet, so one effect owns the map), with zoom from 4 to 11. The layers, bottom to top:
+- USGS relief, native to level 7 and upscaled beyond it.
+- State lines.
+- NOAA MRMS radar as 256 px tiles through the new `/api/radar/tile/{z}/{x}/{y}?t=` route. It uses the same sources and caching as `/api/radar/image`. Standard tile keys mean every visitor shares Vercel's cached tiles.
+- Resort pins, re-decluttered whenever the view changes.
+
+Behavior:
+- Only the shown frame loads at first. Play or scrub loads the whole loop.
+- The scroll wheel zooms only after the map has been clicked, so scrolling the page past it doesn't zoom it.
+- The "no rain or snow" note reads the loaded tiles in view directly.
+- Picking a resort flies the map to it.
+
+Checked in Playwright with stand-in tiles: drag, zoom, play, fly-to, desktop and phone, no console errors, no horizontal scroll.
+
 ### D.3 — Gear for the day (future idea, not approved to build)
 
 Nick, 2026-10-18: when someone taps a forecast day, suggest skis and how
