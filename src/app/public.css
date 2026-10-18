@@ -547,6 +547,10 @@
 .ps-bar.mix {
   background: var(--mix);
 }
+/* Snow day with some rain: snow-colored bar with a rain-colored cap. */
+.ps-bar.mixed {
+  border-top: 3px solid var(--mix);
+}
 .ps-bar.none {
   background: var(--nodata);
 }

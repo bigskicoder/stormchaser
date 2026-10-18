@@ -1,6 +1,6 @@
 import { WindHoldBadge } from "@/components/wind-hold-badge";
 import type { SnowScore } from "@/lib/db/types";
-import { rainExpected } from "@/lib/public/leaderboard";
+import { mixedPrecip, rainExpected } from "@/lib/public/leaderboard";
 import { cToF, kmhToMph } from "@/lib/utils/units";
 
 const DAYS_SHOWN = 5;
@@ -35,7 +35,7 @@ export function ConditionsStrip({ scores }: { scores: SnowScore[] }) {
             <span>{s.avg_cloud_cover_pct != null ? `${Math.round(s.avg_cloud_cover_pct)}% cloud` : "cloud n/a"}</span>
           </div>
           <div className="conditions-wind">{windLabel(s)}</div>
-          <div className="conditions-slr">{rainExpected(s) ? "Rain" : `SLR ${s.snow_to_liquid_ratio.toFixed(1)}:1`}</div>
+          <div className="conditions-slr">{rainExpected(s) ? "Rain" : `${mixedPrecip(s) ? "Mix, " : ""}SLR ${s.snow_to_liquid_ratio.toFixed(1)}:1`}</div>
           <WindHoldBadge probability={s.wind_hold_probability} />
         </div>
       ))}

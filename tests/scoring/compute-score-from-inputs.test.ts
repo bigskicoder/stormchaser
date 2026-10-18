@@ -34,6 +34,48 @@ function coldDayRows(model: ForecastPull["model_name"]): ForecastPull[] {
 }
 
 describe("computeScoreFromInputs", () => {
+  it("scores a rain-to-snow day on its snow hours only, instead of all rain or all snow", () => {
+    // 5 warm hours (rain) then 5 cold hours (snow), 10mm each hour. The old
+    // whole-day temperature (precip-weighted mean, -0.5 C) would have called
+    // all 100mm snow; now only the 50mm in the cold hours counts.
+    const rows = Array.from({ length: 10 }, (_, i) =>
+      row({ model_name: "hrrr", valid_time: `2026-01-01T${String(i).padStart(2, "0")}:00:00Z`, swe_mm: 10, temp_c: i < 5 ? 2 : -3 })
+    );
+    const result = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: rows },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+    })!;
+    expect(result.isRainCase).toBe(false);
+    expect(result.snowFraction).toBeCloseTo(0.5);
+    expect(result.phaseChange).toBe("rain_to_snow");
+    expect(result.phaseChangeAt).toBe("2026-01-01T05:00:00Z");
+    expect(result.estimatedSnowfallIn).toBeCloseTo((50 * result.snowToLiquidRatio) / 25.4);
+  });
+
+  it("still calls an all-warm wet day rain", () => {
+    const rows = Array.from({ length: 4 }, (_, i) =>
+      row({ model_name: "hrrr", valid_time: `2026-01-01T0${i}:00:00Z`, swe_mm: 5, temp_c: 3 })
+    );
+    const result = computeScoreFromInputs({
+      resortId: "r1",
+      targetDate: "2026-01-15",
+      leadTimeHours: 24,
+      modelRuns: { hrrr: rows },
+      ensembleMemberTotals: [],
+      slrCalibrationMultiplier: 1.0,
+      seasonalMaxSnowfallIn: 24,
+    })!;
+    expect(result.isRainCase).toBe(true);
+    expect(result.snowFraction).toBe(0);
+    expect(result.estimatedSnowfallIn).toBe(0);
+    expect(result.powderScore).toBe(0);
+  });
+
   it("returns null when no models are available", () => {
     const result = computeScoreFromInputs({
       resortId: "r1",

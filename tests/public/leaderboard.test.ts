@@ -18,6 +18,9 @@ function score(date: string, powder: number, snow: number, extra: Partial<SnowSc
     powder_score: powder,
     estimated_snowfall_in: snow,
     is_rain_case: false,
+    snow_fraction: null,
+    phase_change: null,
+    phase_change_at: null,
     confidence_label: "high",
     wind_hold_probability: 0.1,
     ...extra,
@@ -89,5 +92,23 @@ describe("summarizeWindow and rankRows", () => {
   it("ranks by score for the chosen window, unscored last", () => {
     expect(rankRows([c, b, a], 5).map((r) => r.row.slug)).toEqual(["a", "b", "c"]);
     expect(rankRows([c, b, a], 1).map((r) => r.row.slug)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("mixedPrecip and changeoverText", () => {
+  it("calls a mostly-snow day with real rain mixed, and ignores a sliver of rain", async () => {
+    const { mixedPrecip } = await import("@/lib/public/leaderboard");
+    expect(mixedPrecip({ is_rain_case: false, reconciled_swe_mm: 10, snow_fraction: 0.6 })).toBe(true);
+    expect(mixedPrecip({ is_rain_case: false, reconciled_swe_mm: 10, snow_fraction: 0.95 })).toBe(false);
+    expect(mixedPrecip({ is_rain_case: true, reconciled_swe_mm: 10, snow_fraction: 0 })).toBe(false);
+    expect(mixedPrecip({ is_rain_case: false, reconciled_swe_mm: 10, snow_fraction: null })).toBe(false);
+  });
+
+  it("says the changeover in the resort's own time", async () => {
+    const { changeoverText } = await import("@/lib/public/leaderboard");
+    expect(changeoverText({ phase_change: "rain_to_snow", phase_change_at: "2026-12-05T22:00:00.000Z" }, "America/Denver")).toBe(
+      "rain turning to snow around 3 PM"
+    );
+    expect(changeoverText({ phase_change: null, phase_change_at: null }, "America/Denver")).toBeNull();
   });
 });

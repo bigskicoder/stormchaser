@@ -1931,6 +1931,24 @@ to re-read the original primer to know what's accounted for.
   for the old name afterward. Clean typecheck, clean build, all existing
   tests still passing (no test asserted the old name as a string).
 
+- **2026-10-18 (late): hour-by-hour rain/snow split.** Nick: "why can't we
+  split days into mix of snow and rain? change over is important." A day
+  used to get one precip-weighted temperature and be all rain or all snow.
+  Now `hourlyPhaseSplit` (lib/scoring/phase-split.ts) phases each hour of
+  the primary model on its own column temperature with the active SLR
+  strategy. The share of liquid that falls as snow, and the SLR of that
+  snow, are applied to the reconciled multi-model total. When the primary
+  model has no precipitation hours that day, the old whole-day verdict is
+  used. `is_rain_case` now means no snow at all. Migration 0015 (applied
+  2026-10-18) adds `snow_fraction`, `phase_change` (rain_to_snow /
+  snow_to_rain) and `phase_change_at`. The resort page's heads-up says
+  "Rain turning to snow around 3 PM" in resort time, the score table
+  shows `4.0" + rain`, the conditions strip shows "Mix", and leaderboard
+  bars get a rain-colored cap. A day counts as mixed when at least 10% of
+  the liquid and 0.25 mm fall as rain. Judgment calls: each hour is
+  all one phase at 0 °C (no melting-layer blend within an hour), and trace
+  hours under 0.1 mm don't decide a changeover.
+
 - **2026-10-18 (evening): rain vs snow fix.** Nick: "The score is not
   differentiating between rain and snow i think." Every western storm was
   being called rain. The Kuchera temperature is the warmest of the surface

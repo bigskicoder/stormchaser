@@ -96,7 +96,13 @@ export interface SnowScore {
   confidence_label: ConfidenceLabel;
   slr_strategy: SlrStrategyName;
   snow_to_liquid_ratio: number;
+  /** True only when none of the day's precipitation falls as snow (hour-by-hour split since migration 0015). */
   is_rain_case: boolean;
+  /** Share of the day's liquid falling as snow, 0-1; null on dry days and rows before migration 0015. */
+  snow_fraction: number | null;
+  /** Rain turning to snow or the reverse during the day, and the first hour of the new phase. */
+  phase_change: "rain_to_snow" | "snow_to_rain" | null;
+  phase_change_at: string | null;
   estimated_snowfall_in: number;
   normalized_snowfall: number;
   lead_time_hours: number;

@@ -30,6 +30,7 @@ import { scoreEnsembleConfidence } from "./ensemble-confidence";
 import { computeLeadTimeFit, computeNormalizedSnowfall, computePowderScore } from "./powder-score";
 import { reconcileModels } from "./reconciliation";
 import { getSlrStrategy } from "./slr";
+import { hourlyPhaseSplit, type PhaseChange } from "./phase-split";
 import { estimateWindHoldProbability } from "./wind-hold";
 import { addCalendarDays, localDateRangeToUtc, localTodayIso } from "@/lib/utils/timezone";
 
@@ -43,7 +44,12 @@ export interface ScoreComputation {
   confidenceLabel: "low" | "medium" | "high";
   slrStrategy: string;
   snowToLiquidRatio: number;
+  /** True only when none of the day's precipitation falls as snow. */
   isRainCase: boolean;
+  /** Share of the day's liquid that falls as snow (0-1); null on a dry day. See phase-split.ts. */
+  snowFraction: number | null;
+  phaseChange: PhaseChange | null;
+  phaseChangeAt: string | null;
   estimatedSnowfallIn: number;
   normalizedSnowfall: number;
   leadTimeHours: number;
@@ -124,15 +130,25 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
   const avgWindSpeedKmh = meanAcrossModels(availableModels.map((m) => dailyAvgWindSpeedKmh(modelRuns[m] ?? [])));
 
   const slrStrategy = getSlrStrategy(config.slrStrategyName);
-  const slrResult = slrStrategy.computeRatio({
+  // Whole-day verdict from one temperature: used for dry days, and when the
+  // primary model has no precipitation hours to split (another model may).
+  const dailySlr = slrStrategy.computeRatio({
     tmaxC,
     calibrationMultiplier: slrCalibrationMultiplier,
     avgWindSpeedKmh,
   });
+  const split = hourlyPhaseSplit({
+    rows: modelRuns[primaryModel] ?? [],
+    strategy: slrStrategy,
+    calibrationMultiplier: slrCalibrationMultiplier,
+    avgWindSpeedKmh,
+  });
+  const snowFraction = split ? split.snowFraction : reconciliation.reconciledValue > 0 ? (dailySlr.isRainCase ? 0 : 1) : null;
+  const snowRatio = split ? split.snowRatio : dailySlr.ratio;
+  const isRainCase = split ? split.snowFraction === 0 : dailySlr.isRainCase;
+  const slrResult = { strategy: dailySlr.strategy, ratio: isRainCase ? 0 : snowRatio, isRainCase };
 
-  const estimatedSnowfallIn = slrResult.isRainCase
-    ? 0
-    : (reconciliation.reconciledValue * slrResult.ratio) / 25.4;
+  const estimatedSnowfallIn = isRainCase ? 0 : (reconciliation.reconciledValue * (snowFraction ?? 1) * snowRatio) / 25.4;
 
   const normalizedSnowfall = computeNormalizedSnowfall(estimatedSnowfallIn, seasonalMaxSnowfallIn);
   const leadTimeFit = computeLeadTimeFit(leadTimeHours, {
@@ -173,6 +189,9 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
     slrStrategy: slrResult.strategy,
     snowToLiquidRatio: slrResult.ratio,
     isRainCase: slrResult.isRainCase,
+    snowFraction,
+    phaseChange: split?.phaseChange ?? null,
+    phaseChangeAt: split?.phaseChangeAt ?? null,
     estimatedSnowfallIn,
     normalizedSnowfall,
     leadTimeHours,
@@ -259,6 +278,9 @@ async function insertSnowScore(
     slr_strategy: score.slrStrategy,
     snow_to_liquid_ratio: score.snowToLiquidRatio,
     is_rain_case: score.isRainCase,
+    snow_fraction: score.snowFraction,
+    phase_change: score.phaseChange,
+    phase_change_at: score.phaseChangeAt,
     estimated_snowfall_in: score.estimatedSnowfallIn,
     normalized_snowfall: score.normalizedSnowfall,
     lead_time_hours: score.leadTimeHours,

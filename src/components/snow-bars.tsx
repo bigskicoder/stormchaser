@@ -7,7 +7,8 @@ function barClass(d: LeaderboardDay): string {
   if (d.snowIn == null) return "ps-bar nodata";
   if (d.isRain) return "ps-bar mix";
   if (d.snowIn <= 0) return "ps-bar none";
-  return d.snowIn >= POWDER_DAY_IN ? "ps-bar powder" : "ps-bar";
+  const base = d.snowIn >= POWDER_DAY_IN ? "ps-bar powder" : "ps-bar";
+  return d.isMixed ? `${base} mixed` : base;
 }
 
 function fmtIn(v: number): string {
@@ -16,13 +17,14 @@ function fmtIn(v: number): string {
 
 export function snowDaysLabel(days: LeaderboardDay[]): string {
   return days
-    .map((d) => `${d.weekday} ${d.snowIn == null ? "no forecast" : d.isRain ? "rain" : `${fmtIn(d.snowIn)} inches`}`)
+    .map((d) => `${d.weekday} ${d.snowIn == null ? "no forecast" : d.isRain ? "rain" : `${fmtIn(d.snowIn)} inches${d.isMixed ? " with some rain" : ""}`}`)
     .join(", ");
 }
 
 /**
  * Daily forecast snowfall as small bars (OpenSnow's convention: blue for
- * some snow, orange from 6", purple for rain). A day with no score is a
+ * some snow, orange from 6", purple for rain; a purple cap on a snow bar
+ * means part of the day falls as rain). A day with no score is a
  * dashed outline, never a zero bar.
  */
 export function SnowBars({

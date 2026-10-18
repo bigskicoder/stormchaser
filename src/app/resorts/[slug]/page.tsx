@@ -9,7 +9,7 @@ import { WebcamEmbed } from "@/components/webcam-embed";
 import { CONFIDENCE_WEIGHT_BY_LABEL } from "@/lib/config/constants";
 import { getAnonDb } from "@/lib/db/client";
 import type { SnowScore } from "@/lib/db/types";
-import { POWDER_DAY_IN, WIND_HOLD_LIKELY, buildLeaderboardRow, rainExpected, summarizeWindow, weekdayLabel } from "@/lib/public/leaderboard";
+import { POWDER_DAY_IN, WIND_HOLD_LIKELY, buildLeaderboardRow, changeoverText, mixedPrecip, rainExpected, summarizeWindow, weekdayLabel } from "@/lib/public/leaderboard";
 import { getPastWeekSnowfall, getResortBySlug, getUpcomingScoresForResort } from "@/lib/public/resort-scores";
 import { buildSnowfallTimeline } from "@/lib/public/snowfall-timeline";
 import { kmhToMph } from "@/lib/utils/units";
@@ -25,12 +25,18 @@ function fmtIn(v: number): string {
 }
 
 /** Plain-language callouts for the next 5 days, straight from the scored fields. */
-function headsUp(scores: SnowScore[]): { kind: "powder" | "wind" | "rain"; day: string; text: string }[] {
+function headsUp(scores: SnowScore[], timeZone: string): { kind: "powder" | "wind" | "rain"; day: string; text: string }[] {
   const out: { kind: "powder" | "wind" | "rain"; day: string; text: string }[] = [];
   for (const s of scores.slice(0, 5)) {
     const day = weekdayLabel(s.target_date);
-    if (rainExpected(s)) out.push({ kind: "rain", day, text: "Rain or mixed precipitation expected." });
-    else if (s.estimated_snowfall_in >= POWDER_DAY_IN)
+    const changeover = changeoverText(s, timeZone);
+    if (rainExpected(s)) out.push({ kind: "rain", day, text: "Rain expected." });
+    else if (mixedPrecip(s)) {
+      const snow = s.estimated_snowfall_in >= 0.5 ? ` About ${fmtIn(s.estimated_snowfall_in)} of snow.` : "";
+      const lead = changeover ? `${changeover[0]!.toUpperCase()}${changeover.slice(1)}.` : "A mix of rain and snow.";
+      out.push({ kind: "rain", day, text: `${lead}${snow}` });
+    }
+    if (!rainExpected(s) && s.estimated_snowfall_in >= POWDER_DAY_IN)
       out.push({
         kind: "powder",
         day,
@@ -59,7 +65,7 @@ export default async function ResortPage({ params }: { params: Promise<{ slug: s
   const row = buildLeaderboardRow({ resort, todayIso, scores, pastWeek: pastWeek.filter((p) => p.date < todayIso) });
   const summary = summarizeWindow(row, 5);
   const best = summary.bestDay ? scores.find((s) => s.target_date === summary.bestDay!.date) ?? null : null;
-  const alerts = headsUp(scores);
+  const alerts = headsUp(scores, resort.timezone);
   const pins = (neighbors.data ?? []) as { slug: string; name: string; lat: number; lng: number }[];
 
   return (

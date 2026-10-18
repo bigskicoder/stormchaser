@@ -33,6 +33,26 @@ export function rainExpected(s: Pick<SnowScore, "is_rain_case" | "reconciled_swe
   return s.is_rain_case && (s.reconciled_swe_mm ?? 0) >= MEASURABLE_PRECIP_MM;
 }
 
+/** Rain share of a day's liquid below which a mostly-snow day isn't called mixed. */
+export const MIXED_MIN_RAIN_SHARE = 0.1;
+
+/**
+ * Part rain, part snow (hour-by-hour split, lib/scoring/phase-split.ts).
+ * False for all-rain days (rainExpected covers those) and for rows scored
+ * before the split existed (snow_fraction null).
+ */
+export function mixedPrecip(s: Pick<SnowScore, "is_rain_case" | "reconciled_swe_mm" | "snow_fraction">): boolean {
+  if (s.is_rain_case || s.snow_fraction == null) return false;
+  return (s.reconciled_swe_mm ?? 0) * (1 - s.snow_fraction) >= MEASURABLE_PRECIP_MM && 1 - s.snow_fraction >= MIXED_MIN_RAIN_SHARE;
+}
+
+/** "rain turning to snow around 3 PM" in the resort's own time, or null when the day has no changeover. */
+export function changeoverText(s: Pick<SnowScore, "phase_change" | "phase_change_at">, timeZone: string): string | null {
+  if (!s.phase_change || !s.phase_change_at) return null;
+  const time = new Date(s.phase_change_at).toLocaleTimeString("en-US", { hour: "numeric", timeZone });
+  return s.phase_change === "rain_to_snow" ? `rain turning to snow around ${time}` : `snow turning to rain around ${time}`;
+}
+
 export type LeaderboardWindow = 1 | 3 | 5;
 
 export type RegionKey = ClimateRegion | "other";
@@ -53,6 +73,8 @@ export interface LeaderboardDay {
   /** Forecast snowfall in inches; 0 on a rain day; null when there's no score for the day. */
   snowIn: number | null;
   isRain: boolean;
+  /** Some snow and some rain (see mixedPrecip). */
+  isMixed: boolean;
   /** 0-100, null when there's no score. */
   score: number | null;
   confidence: ConfidenceLabel | null;
@@ -113,6 +135,7 @@ export function buildLeaderboardRow(params: {
       weekday: weekdayLabel(date),
       snowIn: s ? (s.is_rain_case ? 0 : s.estimated_snowfall_in) : null,
       isRain: s ? rainExpected(s) : false,
+      isMixed: s ? mixedPrecip(s) : false,
       score: s ? Math.round(s.powder_score * 100) : null,
       confidence: s?.confidence_label ?? null,
       windHoldProbability: s?.wind_hold_probability ?? null,
