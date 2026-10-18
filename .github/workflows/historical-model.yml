@@ -1,0 +1,101 @@
+# Runs the historical download + backtest (scripts/run-local-model.ts) on
+# GitHub's servers instead of a laptop. Requested directly: "is it possible
+# to do the computing server side?".
+#
+# Runs once a day. Open-Meteo's free tier allows ~10,000 calls a day and the
+# full 40-year run needs ~50,000, so each run goes until the daily limit
+# (exit code 2), saves its place, and the next day's run carries on. Once
+# everything is done, each daily run just regenerates calibration
+# recommendations and finishes in a few minutes.
+#
+# Needs one repository secret: SUPABASE_SERVICE_ROLE_KEY
+# (GitHub > Settings > Secrets and variables > Actions > New repository secret).
+#
+# Not on Vercel because a Vercel function stops after 5 minutes and Vercel's
+# shared IPs would share Open-Meteo's per-IP free quota with other sites.
+
+name: Historical model run
+
+on:
+  schedule:
+    # 06:00 UTC, after Open-Meteo's daily quota resets at midnight UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      args:
+        description: "Extra flags for run-local-model.ts, e.g. --years=10 or --resort=alta"
+        required: false
+        default: ""
+
+concurrency:
+  group: historical-model
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # Under GitHub's 6-hour cap. A day's quota takes ~2.5 hours at the
+    # driver's pacing (Open-Meteo's 5,000/hour cap is the bottleneck).
+    timeout-minutes: 330
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://hfvcwrzjekzrpyerefao.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Check the secret is set
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Add SUPABASE_SERVICE_ROLE_KEY under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      # local-data/progress.json is the driver's record of finished chunks.
+      # Each run saves a new cache entry and the next run restores the newest.
+      - name: Restore progress
+        uses: actions/cache/restore@v4
+        with:
+          path: local-data/progress.json
+          key: model-progress-${{ github.run_id }}
+          restore-keys: model-progress-
+
+      - name: Download history and run the backtests
+        env:
+          # Passed through env, not interpolated into the script, so input text can't become shell code.
+          EXTRA_ARGS: ${{ inputs.args }}
+        run: |
+          set +e
+          # shellcheck disable=SC2086 # word-split the flags on purpose
+          npx tsx scripts/run-local-model.ts $EXTRA_ARGS
+          status=$?
+          if [ $status -eq 2 ]; then
+            echo "Stopped at today's Open-Meteo limit; tomorrow's run continues from here."
+            exit 0
+          fi
+          exit $status
+
+      - name: Save progress
+        if: always() && hashFiles('local-data/progress.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: local-data/progress.json
+          key: model-progress-${{ github.run_id }}
+
+      - name: Keep the CSV exports
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-results
+          path: local-data/*.csv
+          if-no-files-found: ignore
+          retention-days: 30
