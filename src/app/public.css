@@ -1036,3 +1036,309 @@
     flex: 0 0 auto;
   }
 }
+
+/* ---- True trail difficulty (ROADMAP D.4): map first, then a page per trail ---- */
+.ps-td-back {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.ps-td-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 260px;
+}
+.ps-td-legend .ramp {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.ps-td-legend .ramp i {
+  flex: 1;
+}
+.ps-td-legend .ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ps-td-resorts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.ps-td-resorts .ps-card {
+  text-decoration: none;
+}
+.ps-td-card-sub {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.ps-td-how ul {
+  margin: 12px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  line-height: 1.5;
+}
+
+.ps-td-explorer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+.ps-td-map-wrap {
+  flex: 999 1 560px;
+  min-width: 0;
+}
+.ps-td-map {
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1c2a22;
+}
+.ps-td-map .leaflet-control-attribution {
+  font-size: 11px;
+}
+.ps-td-tip {
+  font-family: var(--font-archivo), var(--font-sans);
+  font-weight: 700;
+  font-size: 13px;
+}
+.ps-td-list {
+  flex: 1 1 320px;
+  min-width: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  max-height: 680px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.ps-td-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 6px 10px;
+}
+.ps-td-list-head h2 {
+  font-size: 17px;
+  margin: 0;
+}
+.ps-td-list-head span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ps-td-list ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ps-td-list a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--ink) !important;
+  text-decoration: none;
+}
+.ps-td-list a:hover,
+.ps-td-list a:focus-visible {
+  background: var(--bg-elevated-hover);
+}
+.ps-td-list .rank {
+  width: 24px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ps-td-list .name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ps-td-list .name b {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ps-td-list .name small {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ps-td-list .bar {
+  width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+.ps-td-list .bar i {
+  display: block;
+  height: 6px;
+}
+.ps-td-list .score {
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 800;
+}
+.ps-td-list .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(15, 27, 42, 0.25);
+}
+
+.ps-td-trail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+}
+.ps-td-trail-head h1 {
+  font-size: 38px;
+  font-weight: 800;
+  margin: 0;
+}
+.ps-td-ring {
+  width: 112px;
+  height: 112px;
+  border-radius: 56px;
+  border: 8px solid;
+  box-sizing: border-box;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ps-td-ring b {
+  font-size: 38px;
+  line-height: 1;
+}
+.ps-td-ring span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ps-td-rank {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.ps-td-trail-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+.ps-td-col {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ps-td-chart {
+  margin: 12px 0 8px;
+}
+.ps-td-chart-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ps-td-chart-key span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ps-td-chart-key i {
+  width: 14px;
+  height: 5px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.ps-td-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 12px 0 0;
+}
+.ps-td-facts dt {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ps-td-facts dd {
+  margin: 2px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+.ps-td-points {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.ps-td-points .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.ps-td-points .track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+.ps-td-points .track i {
+  display: block;
+  height: 8px;
+}
+.ps-td-similar {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ps-td-similar li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+}
+.ps-td-similar span {
+  color: var(--text-muted);
+}
+@media (max-width: 600px) {
+  .ps-td-list {
+    max-height: none;
+  }
+  .ps-td-trail-head h1 {
+    font-size: 30px;
+  }
+}

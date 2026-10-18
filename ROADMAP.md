@@ -1368,12 +1368,25 @@ come first, as with D.2.
   gusts, freezing level, new snow, SLR). No new source needed.
 - **Still to settle:** exact snow-inch cutoffs between ski categories.
 
-### D.4 — True trail difficulty (future idea, not approved to build)
+### D.4 — True trail difficulty (Stowe pilot built 2026-10-18)
 
 Nick, 2026-10-18: measure every trail ourselves and give it an absolute
 difficulty score, so trails compare across resorts (a black at one
-mountain may ski like a blue at another). Not to be built until Nick says
-so; research and mockups come first, as with D.2.
+mountain may ski like a blue at another). Nick said "Build" after picking
+the mockups.
+
+**As built:** pages at `/difficulty` (index), `/difficulty/stowe` (map
+first) and `/difficulty/stowe/<trail>`. The data file
+`src/data/trail-difficulty/stowe.json` is written by
+`scripts/trail-difficulty-build.ts`, run by the "Trail difficulty" GitHub
+workflow (Actions tab → Run workflow), which commits the file and so
+redeploys the site. It runs on GitHub because the sandbox can't reach
+OpenStreetMap. Scoring is in `src/lib/trail-difficulty/score.ts`.
+Slope at each 2 m sample is the median of the terrain gradient (±3 m
+baseline) at five points across the trail, so a centreline that sits on
+a cat track's cutbank still reads the track bed. Hand corrections (a
+trail's grooming, width, trees, moguls, or excluding it) go in
+`src/data/trail-difficulty/stowe.overrides.json`, keyed by trail name.
 
 - **Pilot:** Stowe (Nick knows it personally, so he can sanity-check the
   ranking). Other resorts only after the pilot looks right.

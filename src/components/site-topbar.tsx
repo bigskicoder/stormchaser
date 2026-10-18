@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 /** Public-site top bar (UI option A). The admin pages keep their own header. */
-export function SiteTopbar({ current }: { current?: "leaderboard" }) {
+export function SiteTopbar({ current }: { current?: "leaderboard" | "difficulty" }) {
   return (
     <header className="ps-topbar">
       <div className="ps-wrap">
@@ -15,6 +15,9 @@ export function SiteTopbar({ current }: { current?: "leaderboard" }) {
         <nav className="ps-nav" aria-label="Main">
           <Link href="/" aria-current={current === "leaderboard" ? "page" : undefined}>
             Leaderboard
+          </Link>
+          <Link href="/difficulty" aria-current={current === "difficulty" ? "page" : undefined}>
+            True Difficulty
           </Link>
         </nav>
         <Link href="/#alerts" className="ps-cta">

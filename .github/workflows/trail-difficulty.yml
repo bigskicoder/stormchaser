@@ -1,0 +1,61 @@
+# Measures a resort's trails for true trail difficulty (ROADMAP D.4) and
+# commits src/data/trail-difficulty/<resort>.json, which the /difficulty
+# pages read; the site redeploys on that commit. Runs here rather than in
+# a Vercel function because each lidar tile is ~350 MB.
+#
+# Start it by hand from the Actions tab ("Run workflow"). Trails and lidar
+# change rarely, so there is no schedule.
+
+name: Trail difficulty
+
+on:
+  workflow_dispatch:
+    inputs:
+      resort:
+        description: "Resort slug (see src/lib/trail-difficulty/resorts.ts)"
+        required: true
+        default: "stowe"
+
+concurrency:
+  group: trail-difficulty
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # Lidar tiles never change for a given project, so keep them between runs.
+      - name: Restore lidar tiles
+        uses: actions/cache@v4
+        with:
+          path: local-data/trail-difficulty/*.tif
+          key: lidar-${{ inputs.resort }}-v1
+
+      - name: Measure trails
+        run: npx tsx scripts/trail-difficulty-build.ts --resort=${{ inputs.resort }}
+
+      - name: Commit the results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/data/trail-difficulty/${{ inputs.resort }}.json
+          if git diff --cached --quiet; then
+            echo "No change in the measurements."
+            exit 0
+          fi
+          git commit -m "Trail difficulty: measure ${{ inputs.resort }}"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
