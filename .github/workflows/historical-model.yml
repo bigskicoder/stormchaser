@@ -59,6 +59,21 @@ jobs:
             echo "::error::Add SUPABASE_SERVICE_ROLE_KEY under Settings > Secrets and variables > Actions."
             exit 1
           fi
+          # Says which KIND of key was pasted, never the key itself: the
+          # prefix of a new-style key, or the role claim inside a legacy JWT.
+          node -e '
+            const k = process.env.SUPABASE_SERVICE_ROLE_KEY;
+            if (k !== k.trim()) console.log("::warning::The secret has spaces or line breaks around it; re-paste just the key.");
+            const key = k.trim().replace(/^SUPABASE_SERVICE_ROLE_KEY=/, "").replace(/^["\x27]|["\x27]$/g, "");
+            if (key !== k.trim()) console.log("::warning::The secret includes a variable name or quotes; paste only the key itself.");
+            let kind = "unrecognised format";
+            if (key.startsWith("sb_secret_")) kind = "new-style secret key (correct)";
+            else if (key.startsWith("sb_publishable_")) kind = "PUBLISHABLE key (wrong one: use the secret / service_role key)";
+            else if (key.split(".").length === 3) {
+              try { kind = "legacy JWT with role=" + JSON.parse(Buffer.from(key.split(".")[1], "base64url")).role; } catch { kind = "JWT that could not be read"; }
+            }
+            console.log("Key check: " + kind + ", " + key.length + " characters.");
+          '
 
       # local-data/progress.json is the driver's record of finished chunks.
       # Each run saves a new cache entry and the next run restores the newest.
