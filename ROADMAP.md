@@ -1403,8 +1403,13 @@ so; research and mockups come first, as with D.2.
   compare to blacks elsewhere).
 - **Caveat:** lidar measures the ground, not the snowpack, so the score
   is how hard the trail is built, not how it skis today.
-- **Still to settle:** feature scoring details, and the page design
-  (about 3 mockups first).
+- **Page design (Nick picked, 2026-10-18):** map first. The Stowe page
+  opens on the satellite map with trails colored by score and a ranked
+  list beside it; clicking a trail opens that trail's own page (score,
+  pitch chart from top to bottom with the four windows marked, and the
+  points breakdown). Mockups: the "True Trail Difficulty mockups" design
+  canvas, options A and C.
+- **Still to settle:** feature scoring details.
 
 ---
 
