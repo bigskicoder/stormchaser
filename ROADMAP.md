@@ -1368,6 +1368,44 @@ come first, as with D.2.
   gusts, freezing level, new snow, SLR). No new source needed.
 - **Still to settle:** exact snow-inch cutoffs between ski categories.
 
+### D.4 — True trail difficulty (future idea, not approved to build)
+
+Nick, 2026-10-18: measure every trail ourselves and give it an absolute
+difficulty score, so trails compare across resorts (a black at one
+mountain may ski like a blue at another). Not to be built until Nick says
+so; research and mockups come first, as with D.2.
+
+- **Pilot:** Stowe (Nick knows it personally, so he can sanity-check the
+  ranking). Other resorts only after the pilot looks right.
+- **Where:** its own section of the site, separate from the forecast
+  leaderboard.
+- **Map:** trails drawn as color-coded lines over satellite imagery. USGS
+  NAIP aerial imagery (public domain, about 60 cm, summer photos, which
+  show cut trails clearly). Official resort trail maps are not used: they
+  are hand-painted, not to scale and copyrighted.
+- **Data:** trail lines and grooming tags from OpenStreetMap (ODbL,
+  attribution required); slope from USGS 3DEP lidar elevation (1 m where
+  available, public domain).
+- **Score, 1 to 100 (100 = hardest):**
+  - Effective pitch, 60 points. Steepest average pitch over four windows
+    along the trail, blended: 10 m 10%, 30 m 20%, 100 m 30%, 300 m (or
+    the whole trail if shorter) 40%. Scaled 10° = 0 to 45° = 60. A short
+    steep roll counts less than a long sustained pitch: 30° held for
+    300 m comes out 30°, while a 20° trail with a 10 m roll at 45° comes
+    out about 25°.
+  - Grooming, 15 points: groomed 0, ungroomed full (from OSM tags, so it
+    reflects how a trail is usually kept, not today's grooming report).
+  - Width, 10 points: wide open 0, a chute under about 10 m full.
+  - Features, 15 points: trees, moguls, cliffs or no-fall exposure, icy
+    aspect.
+- **Comparisons:** each trail shows its score next to the resort's own
+  color; each resort gets a "rating inflation" number (how its blacks
+  compare to blacks elsewhere).
+- **Caveat:** lidar measures the ground, not the snowpack, so the score
+  is how hard the trail is built, not how it skis today.
+- **Still to settle:** feature scoring details, and the page design
+  (about 3 mockups first).
+
 ---
 
 ## Primer scope audit — full BUILD_PRIMER coverage check
