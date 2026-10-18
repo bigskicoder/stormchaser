@@ -6,8 +6,10 @@ import {
   columnTmaxC,
   fetchEnsembleBand,
   fetchModelBand,
+  type OpenMeteoEnsembleResponse,
   type OpenMeteoHourlyResponse,
 } from "@/lib/ingestion/open-meteo";
+import { localDateRangeToUtc, utcInstantToLocalDateIso } from "@/lib/utils/timezone";
 
 const OPEN_METEO_BASE_URL = process.env.OPEN_METEO_BASE_URL ?? "https://api.open-meteo.com";
 
@@ -133,8 +135,63 @@ export async function ingestModels(models: ModelName[]): Promise<{ resorts: numb
 }
 
 /**
+ * Collapses one ensemble response to one row per member per resort-local
+ * day, stamped at that day's local-midnight start (in UTC). Scoring only
+ * ever sums a member over a local day (aggregate.ts
+ * fetchEnsembleMemberTotalsForDay, valid_time >= day start and < day
+ * end), so the day total gives it exactly the same answer from 1/24th of
+ * the rows. Hourly storage was 483,600 rows (~100 MB) per run on
+ * 2026-10-18. The control run comes back as plain `precipitation`; it
+ * counts as member 0. Hours with no value are skipped, and a day with no
+ * values at all gets no row.
+ */
+export function ensembleDailyRows(params: {
+  resort: Pick<Resort, "id" | "timezone">;
+  band: ElevationBand;
+  runInitTime: string;
+  response: OpenMeteoEnsembleResponse;
+}): Array<{
+  resort_id: string;
+  elevation_band: ElevationBand;
+  member_id: number;
+  run_init_time: string;
+  valid_time: string;
+  swe_mm: number;
+}> {
+  const { resort, band, runInitTime, response } = params;
+  const times = response.hourly?.time ?? [];
+  const localDates = times.map((t) => utcInstantToLocalDateIso(Date.parse(`${t}Z`), resort.timezone));
+  const memberKeys = Object.keys(response.hourly ?? {}).filter((k) => /^precipitation(_member\d+)?$/.test(k));
+
+  const rows = [];
+  for (const key of memberKeys) {
+    const memberId = Number(key.match(/_member(\d+)$/)?.[1] ?? "0");
+    const series = response.hourly[key] as (number | null)[] | undefined;
+    if (!series) continue;
+    const totals = new Map<string, number>();
+    series.forEach((v, i) => {
+      const date = localDates[i];
+      if (v == null || date == null) return;
+      totals.set(date, (totals.get(date) ?? 0) + v);
+    });
+    for (const [date, total] of totals) {
+      rows.push({
+        resort_id: resort.id,
+        elevation_band: band,
+        member_id: memberId,
+        run_init_time: runInitTime,
+        valid_time: localDateRangeToUtc(date, resort.timezone).start,
+        swe_mm: total,
+      });
+    }
+  }
+  return rows;
+}
+
+/**
  * Pulls ensemble members for every active resort at the primary scoring
- * band only, and inserts into ensemble_pulls. Scoring reads only that band
+ * band only, and inserts daily member totals (ensembleDailyRows) into
+ * ensemble_pulls. Scoring reads only that band
  * (aggregate.ts fetchEnsembleMemberTotalsForDay), and 31 members x 240 h
  * per call makes the other two bands the bulk of the table for nothing.
  * Member-count/name assumptions documented in lib/ingestion/open-meteo.ts.
@@ -156,36 +213,7 @@ export async function ingestEnsemble(): Promise<{ resorts: number; rowsWritten: 
     for (const { band, elevationM } of bandPointsFor(resort).filter((p) => p.band === PRIMARY_SCORING_ELEVATION_BAND)) {
       try {
         const response = await fetchEnsembleBand({ baseUrl: OPEN_METEO_BASE_URL, resort, elevationM });
-        const times = response.hourly?.time ?? [];
-        // The control run comes back as plain `precipitation`; it counts as member 0.
-        const memberKeys = Object.keys(response.hourly).filter((k) => /^precipitation(_member\d+)?$/.test(k));
-
-        const rows: Array<{
-          resort_id: string;
-          elevation_band: ElevationBand;
-          member_id: number;
-          run_init_time: string;
-          valid_time: string;
-          swe_mm: number | null;
-        }> = [];
-
-        for (const key of memberKeys) {
-          const memberId = Number(key.match(/(\d+)$/)?.[1] ?? "0");
-          const series = response.hourly[key] as (number | null)[] | undefined;
-          if (!series) continue;
-          times.forEach((t, i) => {
-            if (series[i] == null) return;
-            rows.push({
-              resort_id: resort.id,
-              elevation_band: band,
-              member_id: memberId,
-              run_init_time: runInitTime,
-              valid_time: new Date(`${t}Z`).toISOString(),
-              swe_mm: series[i] ?? null,
-            });
-          });
-        }
-
+        const rows = ensembleDailyRows({ resort, band, runInitTime, response });
         if (rows.length === 0) continue;
         const { error } = await db.from("ensemble_pulls").insert(rows);
         if (error) throw error;

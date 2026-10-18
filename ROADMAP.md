@@ -1875,6 +1875,13 @@ to re-read the original primer to know what's accounted for.
   free tier's ~10,000. The cause of the 06:00 slowdown is not known: the
   sandbox can't read Vercel logs, and the runs died before they could
   write their errors. The time budget makes the next one visible.
+  Follow-up the same hour: the first working ensemble run (06:40 UTC)
+  wrote 483,600 hourly rows, which took the database from 249 MB to
+  351 MB. Scoring only ever sums a member over a resort-local day, so
+  the ensemble now stores one row per member per local day, stamped at
+  local midnight (`ensembleDailyRows`). That gives scoring the same
+  totals from about 20,000 rows per run. The 07:00 HRRR-only run wrote
+  9,555 rows (it was 46,800), with 0 errors.
 
 ---
 
