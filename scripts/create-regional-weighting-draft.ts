@@ -39,6 +39,7 @@ async function main() {
     config: toScoringConfig(source),
     resortSlrMultipliers: source.resort_slr_multipliers,
     resortScoringOverrides,
+    resortEnsoSlrMultipliers: source.resort_enso_slr_multipliers,
     parentVersionId: source.id,
     createdBy: "script:create-regional-weighting-draft",
     status: "draft",

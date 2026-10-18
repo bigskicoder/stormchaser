@@ -9,6 +9,8 @@
 import { getServiceDb } from "@/lib/db/client";
 import type { ForecastPull, ModelName, ModelVersion, Resort } from "@/lib/db/types";
 import { getActiveModelVersion, listShadowModelVersions } from "@/lib/model-versions/resolve";
+import { getEnsoPhaseLookup, type EnsoPhase } from "@/lib/enso/oni";
+import { slrMultiplierForPhase } from "./enso-multiplier";
 import {
   dailyAvgCloudCoverPct,
   dailyAvgTempC,
@@ -199,6 +201,7 @@ export async function computeScoreForResortDay(
   const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDateIso, resort.timezone);
   const seasonalMaxIn = await fetchSeasonalMaxSnowfallIn(resort.id);
   const activeVersion = await getActiveModelVersion();
+  const phase = (await getEnsoPhaseLookup()).phaseForDate(targetDateIso);
 
   return computeScoreFromInputs({
     resortId: resort.id,
@@ -206,7 +209,7 @@ export async function computeScoreForResortDay(
     leadTimeHours,
     modelRuns,
     ensembleMemberTotals,
-    slrCalibrationMultiplier: resort.slr_calibration_multiplier,
+    slrCalibrationMultiplier: activeCalibrationMultiplier(activeVersion, resort, phase),
     seasonalMaxSnowfallIn: seasonalMaxIn,
     scoringConfig: activeConfigForResort(activeVersion, resort.id),
     modelVersionId: activeVersion?.id ?? null,
@@ -271,9 +274,15 @@ async function insertSnowScore(
   if (error) throw error;
 }
 
-/** A shadow version's own resort-SLR-multiplier snapshot for this resort, falling back to the resort's live value if it isn't in that snapshot — same semantics as activateModelVersion's "only touches resorts present in the snapshot" and the backtest scripts' --version override. Exported for unit testing. */
-export function shadowCalibrationMultiplier(shadow: ModelVersion, resort: Resort): number {
-  return shadow.resort_slr_multipliers[resort.id] ?? resort.slr_calibration_multiplier;
+/** A shadow version's own resort-SLR-multiplier snapshot for this resort, falling back to the resort's live value if it isn't in that snapshot — same semantics as activateModelVersion's "only touches resorts present in the snapshot" and the backtest scripts' --version override. In an El Nino / La Nina winter, the version's phase multiplier for this resort wins when it has one. Exported for unit testing. */
+export function shadowCalibrationMultiplier(shadow: ModelVersion, resort: Resort, phase: EnsoPhase | null = null): number {
+  const base = shadow.resort_slr_multipliers[resort.id] ?? resort.slr_calibration_multiplier;
+  return slrMultiplierForPhase(base, shadow.resort_enso_slr_multipliers?.[resort.id], phase);
+}
+
+/** The live base multiplier (resorts table), or the active version's El Nino / La Nina multiplier for this resort in a winter of that phase. */
+function activeCalibrationMultiplier(activeVersion: ModelVersion | null, resort: Resort, phase: EnsoPhase | null): number {
+  return slrMultiplierForPhase(resort.slr_calibration_multiplier, activeVersion?.resort_enso_slr_multipliers?.[resort.id], phase);
 }
 
 /**
@@ -308,6 +317,7 @@ export async function runScoringForAllResorts(
   const activeVersion = await getActiveModelVersion();
   const activeVersionId = activeVersion?.id ?? null;
   const shadowVersions = await listShadowModelVersions();
+  const ensoLookup = await getEnsoPhaseLookup();
 
   let scoresWritten = 0;
   const errors: string[] = [];
@@ -324,10 +334,11 @@ export async function runScoringForAllResorts(
         const modelRuns = await fetchLatestModelRunsForDay(resort.id, targetDate, resort.timezone);
         const ensembleMemberTotals = await fetchEnsembleMemberTotalsForDay(resort.id, targetDate, resort.timezone);
         const sharedInputs = { resortId: resort.id, targetDate, leadTimeHours, modelRuns, ensembleMemberTotals, seasonalMaxSnowfallIn: seasonalMaxIn };
+        const phase = ensoLookup.phaseForDate(targetDate);
 
         const primaryScore = computeScoreFromInputs({
           ...sharedInputs,
-          slrCalibrationMultiplier: resort.slr_calibration_multiplier,
+          slrCalibrationMultiplier: activeCalibrationMultiplier(activeVersion, resort, phase),
           scoringConfig: activeConfigForResort(activeVersion, resort.id),
           modelVersionId: activeVersionId,
         });
@@ -339,7 +350,7 @@ export async function runScoringForAllResorts(
         for (const shadow of shadowVersions) {
           const shadowScore = computeScoreFromInputs({
             ...sharedInputs,
-            slrCalibrationMultiplier: shadowCalibrationMultiplier(shadow, resort),
+            slrCalibrationMultiplier: shadowCalibrationMultiplier(shadow, resort, phase),
             scoringConfig: resolveScoringConfigForResort(shadow, resort.id),
             modelVersionId: shadow.id,
           });

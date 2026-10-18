@@ -29,7 +29,9 @@ export default async function AdminCalibrationPage() {
         bounded to &plusmn;5% per update. Nothing here is applied until approved below; approving creates and
         activates a new entry on the <a href="/admin/model-versions">model versions</a> page with this one
         resort&rsquo;s multiplier updated — the previous version stays saved, so the change can be rolled back from
-        there.
+        there. Samples are weighted by age (half weight at 10 years old). A row marked El Niño or La Niña is a
+        separate multiplier used only in winters of that phase; it&rsquo;s only proposed once that resort&rsquo;s
+        error in those winters is clearly different from neutral ones.
       </p>
       <table>
         <thead>
@@ -47,7 +49,7 @@ export default async function AdminCalibrationPage() {
             <CalibrationReviewRow
               key={r.id}
               id={r.id}
-              resortName={r.resorts?.name ?? r.resort_id}
+              resortName={`${r.resorts?.name ?? r.resort_id}${r.enso_phase === "el_nino" ? " · El Niño winters" : r.enso_phase === "la_nina" ? " · La Niña winters" : ""}`}
               sampleCount={r.sample_count}
               meanSignedErrorIn={r.mean_signed_error_in}
               currentMultiplier={r.current_multiplier}

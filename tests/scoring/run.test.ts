@@ -78,6 +78,7 @@ function modelVersion(overrides: Partial<ModelVersion> = {}): ModelVersion {
     lead_time_fit_decay_per_hour: 0.01,
     resort_slr_multipliers: {},
     resort_scoring_overrides: {},
+    resort_enso_slr_multipliers: {},
     parent_version_id: null,
     created_by: "test",
     activated_by: null,

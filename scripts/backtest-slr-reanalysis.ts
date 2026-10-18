@@ -84,6 +84,7 @@ async function main() {
   // draft/archived row, so its snapshot — not today's live value — is what
   // gets backtested.
   let resortMultipliers: Record<string, number> | null = null;
+  let resortEnsoMultipliers: ModelVersion["resort_enso_slr_multipliers"] | null = null;
   let version: ModelVersion | null;
 
   if (versionId) {
@@ -93,6 +94,7 @@ async function main() {
       process.exit(1);
     }
     resortMultipliers = version.resort_slr_multipliers;
+    resortEnsoMultipliers = version.resort_enso_slr_multipliers ?? {};
     console.log(`Running under model version "${version.name}" (${version.id}, status=${version.status}).`);
   } else {
     version = await getActiveModelVersion();
@@ -118,6 +120,8 @@ async function main() {
     const summary = await runSlrReanalysisBacktestForResort(resort, startDate, endDate, {
       slrStrategyName,
       calibrationMultiplier: resortMultipliers?.[resort.id],
+      // A pinned version with no phase multiplier for this resort means none ({}), not "fall back to the active version's".
+      ensoSlrMultipliers: resortEnsoMultipliers ? (resortEnsoMultipliers[resort.id] ?? {}) : undefined,
       modelVersionId: resolvedVersionId,
     });
     totalCompared += summary.daysCompared;

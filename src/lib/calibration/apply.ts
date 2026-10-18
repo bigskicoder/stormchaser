@@ -45,12 +45,23 @@ export async function reviewCalibrationRecommendation(
     // own doc comment.
     const currentActive = await createBaselineVersionIfNoneExists();
     const resortLabel = recommendation.resorts?.slug ?? recommendation.resort_id;
+    const phase = recommendation.enso_phase;
+    const phaseLabel = phase === "el_nino" ? " (El Niño)" : phase === "la_nina" ? " (La Niña)" : "";
+    const currentEnso = currentActive.resort_enso_slr_multipliers ?? {};
 
+    // A phase recommendation changes only that resort's multiplier for that
+    // phase; the base multiplier, and so the resorts table, stays as is.
     const draft = await createModelVersion({
-      name: `Calibration: ${resortLabel} → ${recommendation.recommended_multiplier.toFixed(3)}`,
-      description: `Auto-created on approval of calibration recommendation ${recommendation.id} for ${resortLabel} (${recommendation.sample_count} samples, mean signed error ${recommendation.mean_signed_error_in.toFixed(2)}in, ${recommendation.current_multiplier.toFixed(3)} → ${recommendation.recommended_multiplier.toFixed(3)}).`,
+      name: `Calibration: ${resortLabel}${phaseLabel} → ${recommendation.recommended_multiplier.toFixed(3)}`,
+      description: `Auto-created on approval of calibration recommendation ${recommendation.id} for ${resortLabel}${phaseLabel} (${recommendation.sample_count} samples, mean signed error ${recommendation.mean_signed_error_in.toFixed(2)}in, ${recommendation.current_multiplier.toFixed(3)} → ${recommendation.recommended_multiplier.toFixed(3)}).`,
       config: toScoringConfig(currentActive),
-      resortSlrMultipliers: { ...currentActive.resort_slr_multipliers, [recommendation.resort_id]: recommendation.recommended_multiplier },
+      resortSlrMultipliers: phase
+        ? currentActive.resort_slr_multipliers
+        : { ...currentActive.resort_slr_multipliers, [recommendation.resort_id]: recommendation.recommended_multiplier },
+      resortScoringOverrides: currentActive.resort_scoring_overrides,
+      resortEnsoSlrMultipliers: phase
+        ? { ...currentEnso, [recommendation.resort_id]: { ...currentEnso[recommendation.resort_id], [phase]: recommendation.recommended_multiplier } }
+        : currentEnso,
       parentVersionId: currentActive.id,
       createdBy: reviewedBy,
       status: "draft",

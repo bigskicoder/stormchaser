@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
       config: parsed.data.config,
       resortSlrMultipliers: source.resort_slr_multipliers,
       resortScoringOverrides: resortScoringOverrides ?? source.resort_scoring_overrides,
+      resortEnsoSlrMultipliers: source.resort_enso_slr_multipliers,
       parentVersionId: source.id,
       createdBy: userId,
       status: "draft",

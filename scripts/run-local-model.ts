@@ -50,6 +50,7 @@ import { HOURLY_VARIABLES } from "../src/lib/ingestion/open-meteo";
 import { RECONCILIATION_BACKTEST_MODELS } from "../src/lib/backtest/reconciliation-forecast-archive";
 import { mapWithConcurrency } from "../src/lib/utils/concurrency";
 import { WeightedRateLimiter, openMeteoCallWeight } from "../src/lib/utils/weighted-rate-limiter";
+import { refreshEnsoOni, resetEnsoPhaseLookupCache } from "../src/lib/enso/oni";
 import type { ModelVersion, Resort } from "../src/lib/db/types";
 
 const DATA_DIR = join(process.cwd(), "local-data");
@@ -237,9 +238,21 @@ async function main() {
   // Same rule as the backtest:* scripts: only a pinned --version uses its
   // own multiplier snapshot; the active version uses each resort's live one.
   const multipliers = opts.versionId ? version?.resort_slr_multipliers ?? null : null;
+  const ensoMultipliers = opts.versionId ? version?.resort_enso_slr_multipliers ?? {} : null;
   const versionKey = version?.id ?? "defaults";
   console.log(`Model version: ${version ? `"${version.name}" (${version.id})` : "compiled-in defaults"}. ${resorts.length} resorts with SNOTEL coverage, ${opts.parallel} at a time.\n`);
   const limiter = new WeightedRateLimiter(OPEN_METEO_WINDOWS);
+
+  // NOAA's El Nino / La Nina index, used to tag every backtested winter and
+  // to pick phase multipliers. Without it the run still works; samples are
+  // just phase-unknown and calibration falls back to base multipliers.
+  try {
+    const oni = await refreshEnsoOni();
+    resetEnsoPhaseLookupCache();
+    console.log(`Downloaded NOAA's El Nino / La Nina index (${oni.rows} seasons).\n`);
+  } catch (err) {
+    console.log(`Couldn't download NOAA's El Nino / La Nina index (${(err as Error).message}); continuing without it.\n`);
+  }
 
   try {
     if (!opts.skipSlr) {
@@ -251,6 +264,7 @@ async function main() {
         const s = await runSlrReanalysisBacktestForResort(resort, start, end, {
           slrStrategyName,
           calibrationMultiplier: multipliers?.[resort.id],
+          ensoSlrMultipliers: ensoMultipliers ? (ensoMultipliers[resort.id] ?? {}) : undefined,
           modelVersionId: version?.id ?? null,
         });
         return { compared: s.daysCompared, errors: s.error ? [s.error] : [] };
@@ -270,6 +284,7 @@ async function main() {
         const s = await runReconciliationBacktestForResort(resort, start, end, {
           scoringConfig,
           calibrationMultiplier: multipliers?.[resort.id],
+          ensoSlrMultipliers: ensoMultipliers ? (ensoMultipliers[resort.id] ?? {}) : undefined,
           modelVersionId: version?.id ?? null,
         });
         return { compared: s.daysCompared, errors: [...(s.error ? [s.error] : []), ...s.modelErrors] };

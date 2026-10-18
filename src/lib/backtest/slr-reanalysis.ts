@@ -26,6 +26,8 @@ import { backfillSnotelActualsForResort } from "@/lib/ingestion/snotel";
 import { fetchHistoricalWeather, type HistoricalWeatherResponse } from "@/lib/ingestion/open-meteo-historical";
 import type { Resort, SlrStrategyName } from "@/lib/db/types";
 import { utcInstantToLocalDateIso } from "@/lib/utils/timezone";
+import type { EnsoAdjustablePhase } from "@/lib/enso/oni";
+import { backtestMultiplierByDate } from "./enso-multiplier";
 
 export interface DailyReanalysisBucket {
   date: string;
@@ -137,6 +139,8 @@ export interface SlrReanalysisBacktestSummary {
 export interface SlrReanalysisBacktestOverrides {
   slrStrategyName?: SlrStrategyName;
   calibrationMultiplier?: number;
+  /** The version's El Nino / La Nina multipliers for this resort; undefined = the active version's. */
+  ensoSlrMultipliers?: Partial<Record<EnsoAdjustablePhase, number>>;
   modelVersionId?: string | null;
 }
 
@@ -176,6 +180,7 @@ export async function runSlrReanalysisBacktestForResort(
 
     const weather = await fetchHistoricalWeather({ resort, elevationM: resort.elevation_mid_m, startDate, endDate });
     const buckets = bucketHourlyReanalysisByLocalDay(weather.hourly, resort.timezone);
+    const multiplierFor = await backtestMultiplierByDate(resort, overrides);
 
     let daysSkipped = 0;
     const rows: Record<string, unknown>[] = [];
@@ -183,7 +188,7 @@ export async function runSlrReanalysisBacktestForResort(
     for (const bucket of buckets) {
       const result = computeSlrBacktestDay({
         bucket,
-        calibrationMultiplier: overrides.calibrationMultiplier ?? resort.slr_calibration_multiplier,
+        calibrationMultiplier: multiplierFor(bucket.date),
         observedSnowfallIn: observedByDate.get(bucket.date) ?? null,
         slrStrategyName: overrides.slrStrategyName,
       });

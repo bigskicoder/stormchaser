@@ -1,5 +1,7 @@
 /** Hand-written types mirroring supabase/migrations/0001_init.sql. */
 
+import type { EnsoAdjustablePhase } from "@/lib/enso/oni";
+
 export type PassAffiliation = "epic" | "ikon" | "independent" | "none";
 export type ElevationBand = "base" | "mid" | "summit";
 export type ModelName = "hrrr" | "gfs" | "icon" | "ecmwf" | "gem";
@@ -221,6 +223,8 @@ export interface CalibrationRecommendation {
   mean_signed_error_in: number;
   current_multiplier: number;
   recommended_multiplier: number;
+  /** null = the resort's base multiplier; otherwise the El Nino / La Nina one (ROADMAP Phase B.6). */
+  enso_phase: EnsoAdjustablePhase | null;
   status: "pending" | "approved" | "rejected";
   reviewed_by: string | null;
   reviewed_at: string | null;
@@ -285,6 +289,8 @@ export interface ModelVersion {
   resort_slr_multipliers: Record<string, number>;
   /** resort_id -> partial scoring-config override, snapshotted at save time. Every resort defaults to absent (fully inherits this version's global config) — see ResortScoringOverride and lib/scoring/config.ts's resolveScoringConfigForResort. */
   resort_scoring_overrides: Record<string, ResortScoringOverride>;
+  /** resort_id -> per-ENSO-phase SLR multiplier, used instead of the base one in that phase's winters (lib/scoring/enso-multiplier.ts). Absent phase = base multiplier. */
+  resort_enso_slr_multipliers: Record<string, Partial<Record<EnsoAdjustablePhase, number>>>;
   parent_version_id: string | null;
   created_by: string;
   /** Who activated the CURRENT activation — distinct from created_by. See the migration's own comment on why this isn't a full activation history. */

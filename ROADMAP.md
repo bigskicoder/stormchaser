@@ -932,6 +932,44 @@ JSON textarea as any other override.
 
 ---
 
+## Phase B.6 — Recency weighting and ENSO-aware calibration
+
+**Status: ✅ built (2026-10-18).** Requested directly: *"are more recent
+years weighted more than the data at the start of the set? additionally
+years with marked El Nino/La Nina"*, then *"build both"*.
+
+- **Recency.** Every calibration sample now counts
+  `0.5 ^ (age / CALIBRATION_RECENCY_HALF_LIFE_YEARS)` (10 years). Before
+  this, a 40-year backtest (~14,000 resort-days) outvoted a season of live
+  data, and 1980s reanalysis (thinner observations) counted as much as
+  last winter. The half-life is a judgment call, not a fitted value.
+- **ENSO.** `enso_oni` holds NOAA CPC's full ONI table (1950 on),
+  downloaded by `/api/cron/enso` monthly and at the start of every local
+  model run; nothing is typed in by hand. A winter is El Niño / La Niña
+  when its DJF ONI is ≥ +0.5 / ≤ −0.5 °C (simplified from CPC's
+  five-season rule), and the current winter uses the latest published
+  season until DJF is out. Every calibration sample is tagged with its
+  winter's phase.
+- **Phase multipliers, only where the data says so.** A resort gets an El
+  Niño or La Niña multiplier proposed only once its error in that phase
+  differs from neutral winters by |Welch t| ≥ 3 with ≥100 days on each
+  side (3, not 2, because a storm's days are correlated). From then on that
+  phase's samples tune that multiplier and are excluded from the base one.
+  Same ±5% step, same bounds, same admin approval
+  (`/admin/calibration` labels the row). Approval writes
+  `model_versions.resort_enso_slr_multipliers`, so it's versioned and
+  rollback-able like everything else.
+- **Where it's used.** Live scoring, shadow scoring and both backtests
+  pick the multiplier for the target date's phase
+  (`lib/scoring/enso-multiplier.ts`), so a backtest scores a past La Niña
+  winter the way live scoring would score this one.
+- Also fixed on the way: calibration read accuracy_log without paging, so
+  it only ever saw the first 1,000 backtest rows per resort; and approving
+  a recommendation dropped the active version's per-resort scoring
+  overrides from the new version.
+
+---
+
 ## Phase C — Autonomous dev-iteration loop (Claude Code)
 
 **Status: ⬜ designed, not activated. Opt-in — tell me when you want this turned on.**

@@ -11,6 +11,8 @@ export interface CreateModelVersionParams {
   resortSlrMultipliers: Record<string, number>;
   /** resort_id -> partial scoring-config override snapshot (ROADMAP Phase B.3). Defaults to {} — no resort differs from this version's own global config unless explicitly set. */
   resortScoringOverrides?: Record<string, ResortScoringOverride>;
+  /** resort_id -> El Nino / La Nina SLR multipliers (ROADMAP Phase B.6). Defaults to {}; pass the source version's when branching from it, or they're dropped. */
+  resortEnsoSlrMultipliers?: ModelVersion["resort_enso_slr_multipliers"];
   parentVersionId?: string | null;
   createdBy: string;
   status?: "draft" | "active" | "archived";
@@ -28,6 +30,7 @@ export async function createModelVersion(params: CreateModelVersionParams): Prom
       ...scoringConfigToVersionFields(params.config),
       resort_slr_multipliers: params.resortSlrMultipliers,
       resort_scoring_overrides: params.resortScoringOverrides ?? {},
+      resort_enso_slr_multipliers: params.resortEnsoSlrMultipliers ?? {},
       parent_version_id: params.parentVersionId ?? null,
       created_by: params.createdBy,
       activated_by: status === "active" ? params.createdBy : null,

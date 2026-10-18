@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCalibrationRecommendation, type AccuracySample } from "@/lib/calibration/recommend";
+import { computeCalibrationRecommendation, recencyWeight, welchT, type AccuracySample } from "@/lib/calibration/recommend";
 import { CALIBRATION_MAX_STEP_FRACTION, CALIBRATION_MULTIPLIER_BOUNDS } from "@/lib/config/constants";
 
 function samples(n: number, predictedIn: number, errorIn: number): AccuracySample[] {
@@ -61,5 +61,34 @@ describe("computeCalibrationRecommendation", () => {
   it("is ineligible when mean predicted snowfall is zero", () => {
     const result = computeCalibrationRecommendation(1.0, samples(20, 0, 0));
     expect(result.eligible).toBe(false);
+  });
+});
+
+describe("recencyWeight", () => {
+  it("halves every half-life and never exceeds 1", () => {
+    expect(recencyWeight(0, 10)).toBe(1);
+    expect(recencyWeight(10, 10)).toBeCloseTo(0.5);
+    expect(recencyWeight(20, 10)).toBeCloseTo(0.25);
+    expect(recencyWeight(-1, 10)).toBe(1);
+  });
+});
+
+describe("weighted calibration", () => {
+  it("lets heavily weighted recent samples outvote old ones", () => {
+    const old = Array.from({ length: 20 }, () => ({ predictedIn: 10, errorIn: 4, weight: 0.01 }));
+    const recent = Array.from({ length: 20 }, () => ({ predictedIn: 10, errorIn: -4, weight: 1 }));
+    const result = computeCalibrationRecommendation(1.0, [...old, ...recent]);
+    // Recent under-prediction dominates, so the multiplier goes up.
+    expect(result.meanSignedErrorIn).toBeLessThan(0);
+    expect(result.recommendedMultiplier).toBeGreaterThan(1.0);
+  });
+});
+
+describe("welchT", () => {
+  it("is large for clearly different groups and 0 when there's too little data", () => {
+    const a = Array.from({ length: 50 }, (_, i) => 2 + (i % 5) * 0.1);
+    const b = Array.from({ length: 50 }, (_, i) => (i % 5) * 0.1);
+    expect(welchT(a, b)).toBeGreaterThan(10);
+    expect(welchT([1], b)).toBe(0);
   });
 });

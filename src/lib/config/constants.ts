@@ -166,11 +166,10 @@ export const CALIBRATION_SKIP_IF_PENDING_EXISTS = true;
  * accuracy_log sources pooled alongside live 'powder_alert' data when
  * computing a calibration recommendation — see lib/backtest/ for what each
  * one actually validates, and lib/calibration/generate.ts for how they're
- * combined. Deliberately NOT subject to CALIBRATION_LOOKBACK_DAYS (that
- * window exists so live calibration tracks *current* model behavior,
- * which doesn't apply to a historical backtest result — a storm from
- * years ago run through today's SLR formula is still a valid data point
- * about that formula, it doesn't go stale the way live recency does).
+ * combined. Not cut off by CALIBRATION_LOOKBACK_DAYS (a storm from years
+ * ago run through today's SLR formula is still a valid data point about
+ * that formula), but down-weighted by age — see
+ * CALIBRATION_RECENCY_HALF_LIFE_YEARS.
  * This pooling is a methodological approximation, not a perfectly clean
  * blend — see lib/backtest/slr-reanalysis.ts's header for the one real
  * caveat (SLR-only error vs. end-to-end error). Acceptable given Phase B
@@ -178,6 +177,31 @@ export const CALIBRATION_SKIP_IF_PENDING_EXISTS = true;
  * source proposed it.
  */
 export const CALIBRATION_BACKTEST_SOURCES = ["slr_reanalysis_backtest", "reconciliation_forecast_backtest"] as const;
+
+/**
+ * Age at which a calibration sample counts half as much as one from today
+ * (weight = 0.5 ^ (age in years / half-life)). Requested directly ("are
+ * more recent years weighted more?"): without it, a full 40-year backtest
+ * (~14,000 resort-days) drowns out a season of live results, and the
+ * oldest reanalysis years rest on far fewer observations than recent ones.
+ * 10 years keeps the 1980s at ~6% weight each rather than dropping them.
+ * A judgment call, not a fitted value; change it here.
+ */
+export const CALIBRATION_RECENCY_HALF_LIFE_YEARS = 10;
+
+/**
+ * ENSO-specific multipliers (ROADMAP Phase B.6). A resort only gets its own
+ * El Nino or La Nina multiplier proposed when its backtest error in that
+ * phase differs from its neutral-winter error by at least this many
+ * standard errors (Welch's t), with at least ENSO_MIN_PHASE_SAMPLES days on
+ * both sides. 3 rather than the textbook 2 because consecutive days'
+ * errors are correlated (one storm spans several days), which overstates
+ * the effective sample size; this keeps the bar honest without modelling
+ * the autocorrelation. Once a phase multiplier exists it keeps being
+ * nudged like the base one, still bounded and still admin-approved.
+ */
+export const ENSO_SIGNIFICANCE_T = 3;
+export const ENSO_MIN_PHASE_SAMPLES = 100;
 
 // ---------------------------------------------------------------------------
 // Resort detail page — wind-hold-probability estimate (lib/scoring/wind-hold.ts)

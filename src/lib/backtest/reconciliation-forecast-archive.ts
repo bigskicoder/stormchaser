@@ -53,6 +53,8 @@ import { computeScoreFromInputs } from "@/lib/scoring/run";
 import type { ScoringConfig } from "@/lib/scoring/config";
 import type { ForecastPull, ModelName, Resort } from "@/lib/db/types";
 import { utcInstantToLocalDateIso } from "@/lib/utils/timezone";
+import type { EnsoAdjustablePhase } from "@/lib/enso/oni";
+import { backtestMultiplierByDate } from "./enso-multiplier";
 
 /**
  * See this module's header: the archive is a stitched short-lead series,
@@ -145,6 +147,8 @@ export interface ReconciliationBacktestSummary {
 export interface ReconciliationBacktestOverrides {
   scoringConfig?: ScoringConfig;
   calibrationMultiplier?: number;
+  /** The version's El Nino / La Nina multipliers for this resort; undefined = the active version's. */
+  ensoSlrMultipliers?: Partial<Record<EnsoAdjustablePhase, number>>;
   modelVersionId?: string | null;
 }
 
@@ -201,6 +205,7 @@ export async function runReconciliationBacktestForResort(
 
     let daysSkipped = 0;
     const rows: Record<string, unknown>[] = [];
+    const multiplierFor = await backtestMultiplierByDate(resort, overrides);
 
     for (const [date, modelRuns] of modelRunsByDate) {
       const observedSnowfallIn = observedByDate.get(date) ?? null;
@@ -215,7 +220,7 @@ export async function runReconciliationBacktestForResort(
         leadTimeHours: RECONCILIATION_BACKTEST_NOMINAL_LEAD_TIME_HOURS,
         modelRuns,
         ensembleMemberTotals: [],
-        slrCalibrationMultiplier: overrides.calibrationMultiplier ?? resort.slr_calibration_multiplier,
+        slrCalibrationMultiplier: multiplierFor(date),
         seasonalMaxSnowfallIn: SEASONAL_MAX_BOOTSTRAP_DEFAULT_IN,
         scoringConfig: overrides.scoringConfig,
         modelVersionId: overrides.modelVersionId,
