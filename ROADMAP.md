@@ -1341,6 +1341,8 @@ Behavior:
 
 Checked in Playwright with stand-in tiles: drag, zoom, play, fly-to, desktop and phone, no console errors, no horizontal scroll.
 
+**Dry days score 0 (Nick, 2026-10-18: "Shouldn't it be 0 as it's not winter").** Confidence (35%) and lead-time fit (15%) used to score on their own, so a confident 0" forecast scored 50 and every dry resort tied at 50. Now both terms scale with forecast snow, from 0 at 0" to full credit at 6" (`FULL_CREDIT_SNOWFALL_IN`, matching the leaderboard's powder-day threshold). Snowfall's own 50% is unchanged. Existing scores update on the next hourly scoring run.
+
 ### D.3 — Gear for the day (future idea, not approved to build)
 
 Nick, 2026-10-18: when someone taps a forecast day, suggest skis and how

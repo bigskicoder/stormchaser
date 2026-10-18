@@ -81,3 +81,23 @@ describe("computePowderScore", () => {
     expect(overriddenScore).toBeGreaterThan(defaultScore);
   });
 });
+
+describe("computePowderScore snow credit", () => {
+  const base = { normalizedSnowfall: 0, confidenceLabel: "high" as const, leadTimeFit: 1 };
+
+  it("gives a confident dry day nothing", () => {
+    expect(computePowderScore({ ...base, estimatedSnowfallIn: 0 })).toBe(0);
+  });
+
+  it("scales confidence and timing up to full credit at 6 inches", () => {
+    const half = computePowderScore({ ...base, estimatedSnowfallIn: 3 });
+    const full = computePowderScore({ ...base, estimatedSnowfallIn: 6 });
+    expect(half).toBeCloseTo(0.25);
+    expect(full).toBeCloseTo(0.5);
+    expect(computePowderScore({ ...base, estimatedSnowfallIn: 12 })).toBeCloseTo(full);
+  });
+
+  it("keeps the original behavior when snowfall isn't passed", () => {
+    expect(computePowderScore(base)).toBeCloseTo(0.5);
+  });
+});

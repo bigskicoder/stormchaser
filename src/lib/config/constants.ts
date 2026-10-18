@@ -82,6 +82,14 @@ export const WIND_SLR_ADJUSTMENT_FLOOR = 0.6;
 // ---------------------------------------------------------------------------
 // 5.4 Composite powder_score
 // ---------------------------------------------------------------------------
+/**
+ * Forecast snowfall (inches) at which confidence and lead-time fit earn
+ * their full share of the powder score. Below it they scale down linearly,
+ * so a confident 0" day scores 0 rather than 50 (Nick, 2026-10-18; the
+ * first live dry week tied every resort at 50). 6" matches POWDER_DAY_IN.
+ */
+export const FULL_CREDIT_SNOWFALL_IN = 6;
+
 export const POWDER_SCORE_WEIGHTS = {
   SNOWFALL: 0.5,
   CONFIDENCE: 0.35,

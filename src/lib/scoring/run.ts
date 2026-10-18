@@ -145,6 +145,7 @@ export function computeScoreFromInputs(inputs: ScoreInputs): ScoreComputation | 
       normalizedSnowfall,
       confidenceLabel: ensembleConfidence.confidenceLabel,
       leadTimeFit,
+      estimatedSnowfallIn,
     },
     {
       weights: config.powderScoreWeights,

@@ -7,6 +7,7 @@
 import {
   ACTIONABLE_WINDOW_HOURS,
   CONFIDENCE_WEIGHT_BY_LABEL,
+  FULL_CREDIT_SNOWFALL_IN,
   LEAD_TIME_FIT_DECAY_PER_HOUR,
   POWDER_SCORE_WEIGHTS,
 } from "@/lib/config/constants";
@@ -48,15 +49,22 @@ export interface PowderScoreInput {
   normalizedSnowfall: number;
   confidenceLabel: ConfidenceLabel;
   leadTimeFit: number;
+  /**
+   * Forecast snowfall in inches. Scales the confidence and lead-time terms
+   * (see FULL_CREDIT_SNOWFALL_IN). Omitted, they count in full, the
+   * original behavior.
+   */
+  estimatedSnowfallIn?: number;
 }
 
 export function computePowderScore(input: PowderScoreInput, configOverride?: PowderScoreConfigOverride): number {
   const weights = configOverride?.weights ?? POWDER_SCORE_WEIGHTS;
   const confidenceWeightByLabel = configOverride?.confidenceWeightByLabel ?? CONFIDENCE_WEIGHT_BY_LABEL;
   const confidenceWeight = confidenceWeightByLabel[input.confidenceLabel];
+  const snowCredit =
+    input.estimatedSnowfallIn == null ? 1 : Math.max(0, Math.min(1, input.estimatedSnowfallIn / FULL_CREDIT_SNOWFALL_IN));
   const score =
     weights.SNOWFALL * input.normalizedSnowfall +
-    weights.CONFIDENCE * confidenceWeight +
-    weights.LEAD_TIME_FIT * input.leadTimeFit;
+    snowCredit * (weights.CONFIDENCE * confidenceWeight + weights.LEAD_TIME_FIT * input.leadTimeFit);
   return Math.max(0, Math.min(1, score));
 }
