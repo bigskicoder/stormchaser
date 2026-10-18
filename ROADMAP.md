@@ -1331,7 +1331,7 @@ come first, as with D.2.
 - **Skis:** pick a category from new snow plus density (SLR); a crust or
   a rain line (freezing level near the base) pushes it one category
   narrower. Nick's picks, kept in an editable data file, not in code:
-  - 0, firm or groomed: RC4 CT, Addikt Pro
+  - 0, firm or groomed: Fischer RC4 WC CT, Salomon Addikt Pro 76
   - 1, little new snow: Mantra 88, Optic 88, Stance Pro 82
   - 2, a few inches or chopped: Black Ops 98, Rustler 9, QST 100
   - 3, powder: Devastator, Sender Free 110, Hoji, QST Blank
