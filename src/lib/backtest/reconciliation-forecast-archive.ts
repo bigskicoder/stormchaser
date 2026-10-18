@@ -83,8 +83,10 @@ export function forecastPullsFromHistoricalResponse(params: {
   resortId: string;
   model: ModelName;
   response: OpenMeteoHourlyResponse["hourly"];
+  /** Elevation the archive was asked for; pressure levels below it are skipped (see columnTmaxC). */
+  elevationM: number;
 }): ForecastPull[] {
-  const { resortId, model, response } = params;
+  const { resortId, model, response, elevationM } = params;
   const times = response.time ?? [];
   return times.map((t, i) => {
     const validTime = new Date(`${t}Z`).toISOString();
@@ -99,7 +101,7 @@ export function forecastPullsFromHistoricalResponse(params: {
       raw_payload: {},
       swe_mm: response.precipitation?.[i] ?? null,
       precip_mm: response.precipitation?.[i] ?? null,
-      temp_c: columnTmaxC(response, i),
+      temp_c: columnTmaxC(response, i, elevationM),
       wind_speed_kmh: response.wind_speed_10m?.[i] ?? null,
       wind_gust_kmh: response.wind_gusts_10m?.[i] ?? null,
       wind_dir_deg: response.wind_direction_10m?.[i] ?? null,
@@ -191,7 +193,7 @@ export async function runReconciliationBacktestForResort(
           endDate,
           hourlyVariables: HOURLY_VARIABLES,
         });
-        const rows = forecastPullsFromHistoricalResponse({ resortId: resort.id, model, response: response.hourly });
+        const rows = forecastPullsFromHistoricalResponse({ resortId: resort.id, model, response: response.hourly, elevationM: resort.elevation_mid_m });
         const byDay = groupForecastPullsByLocalDay(rows, resort.timezone);
         for (const [date, dayRows] of byDay) {
           const entry = modelRunsByDate.get(date) ?? {};

@@ -52,8 +52,9 @@ function rowsFromHourlyResponse(params: {
 }) {
   const { resort, model, band, runInitTime, response } = params;
   const times = response.hourly?.time ?? [];
+  const bandElevationM = bandPointsFor(resort).find((b) => b.band === band)!.elevationM;
   const rows = times.map((t, i) => {
-    const tmaxC = columnTmaxC(response.hourly, i);
+    const tmaxC = columnTmaxC(response.hourly, i, bandElevationM);
     return {
       resort_id: resort.id,
       model_name: model,

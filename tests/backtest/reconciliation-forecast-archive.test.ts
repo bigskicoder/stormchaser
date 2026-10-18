@@ -27,7 +27,7 @@ describe("forecastPullsFromHistoricalResponse", () => {
       wind_speed_10m: [15, 18],
       wind_gusts_10m: [25, 30],
     };
-    const rows = forecastPullsFromHistoricalResponse({ resortId: "r1", model: "gfs", response });
+    const rows = forecastPullsFromHistoricalResponse({ resortId: "r1", model: "gfs", response, elevationM: 500 });
     expect(rows).toHaveLength(2);
     expect(rows[0]!.model_name).toBe("gfs");
     expect(rows[0]!.resort_id).toBe("r1");
@@ -46,12 +46,12 @@ describe("forecastPullsFromHistoricalResponse", () => {
       temperature_850hPa: [-2], // warmer aloft — columnTmaxC should pick the max
       precipitation: [1],
     };
-    const rows = forecastPullsFromHistoricalResponse({ resortId: "r1", model: "ecmwf", response });
+    const rows = forecastPullsFromHistoricalResponse({ resortId: "r1", model: "ecmwf", response, elevationM: 500 });
     expect(rows[0]!.temp_c).toBe(-2);
   });
 
   it("returns an empty array when the response has no time series", () => {
-    expect(forecastPullsFromHistoricalResponse({ resortId: "r1", model: "gfs", response: { time: [] } })).toEqual([]);
+    expect(forecastPullsFromHistoricalResponse({ resortId: "r1", model: "gfs", response: { time: [] }, elevationM: 500 })).toEqual([]);
   });
 });
 

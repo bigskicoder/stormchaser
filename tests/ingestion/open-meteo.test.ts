@@ -122,12 +122,12 @@ describe("columnTmaxC", () => {
       temperature_700hPa: [-8],
       temperature_500hPa: [-20],
     });
-    expect(columnTmaxC(hourly, 0)).toBe(-3);
+    expect(columnTmaxC(hourly, 0, 500)).toBe(-3);
   });
 
   it("falls back to surface temp alone when no pressure-level data is present", () => {
     const hourly = hourlyFixture({ temperature_2m: [-6] });
-    expect(columnTmaxC(hourly, 0)).toBe(-6);
+    expect(columnTmaxC(hourly, 0, 500)).toBe(-6);
   });
 
   it("skips null entries and still returns the max of what's present", () => {
@@ -136,11 +136,24 @@ describe("columnTmaxC", () => {
       temperature_850hPa: [null],
       temperature_700hPa: [-2],
     });
-    expect(columnTmaxC(hourly, 0)).toBe(-2);
+    expect(columnTmaxC(hourly, 0, 500)).toBe(-2);
+  });
+
+  it("ignores pressure levels below the point, which Open-Meteo extrapolates through the mountain", () => {
+    // Real Alta mid-elevation hour, 2026-10-23 ECMWF: snowing at the surface.
+    const hourly = hourlyFixture({
+      temperature_2m: [-2.4],
+      temperature_850hPa: [7.7],
+      temperature_700hPa: [-2.3],
+      temperature_500hPa: [-18.9],
+    });
+    expect(columnTmaxC(hourly, 0, 2900)).toBe(-2.3);
+    // Above 700 hPa's ~3,000 m only the surface and 500 hPa count.
+    expect(columnTmaxC(hourly, 0, 3200)).toBe(-2.4);
   });
 
   it("returns null when every candidate is null/undefined", () => {
     const hourly = hourlyFixture({ temperature_2m: [null] });
-    expect(columnTmaxC(hourly, 0)).toBeNull();
+    expect(columnTmaxC(hourly, 0, 500)).toBeNull();
   });
 });

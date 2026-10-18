@@ -1931,6 +1931,24 @@ to re-read the original primer to know what's accounted for.
   for the old name afterward. Clean typecheck, clean build, all existing
   tests still passing (no test asserted the old name as a string).
 
+- **2026-10-18 (evening): rain vs snow fix.** Nick: "The score is not
+  differentiating between rain and snow i think." Every western storm was
+  being called rain. The Kuchera temperature is the warmest of the surface
+  and the 850/700/500 hPa levels, and the code assumed Open-Meteo returns
+  null for a level below the ground. It doesn't: it returns a value
+  extrapolated down through the mountain. At Alta mid (2,900 m) on a
+  snowy hour on 2026-10-23, ECMWF had the surface at -2.4 °C and 700 hPa
+  at -2.3 °C, but 850 hPa (about 1,460 m, well under the resort) at
+  +7.7 °C, so the day was flagged rain and scored 0. `columnTmaxC` now
+  only counts levels whose standard-atmosphere height is above the point
+  (850 ≈ 1,457 m, 700 ≈ 3,012 m, 500 ≈ 5,574 m). Asking Open-Meteo for
+  the real geopotential heights would have pushed the request past 10
+  variables and raised the call count by about a quarter, so standard
+  heights are used instead. Stored temp_c on current forecast rows was
+  recomputed from raw_payload the same way, so scores correct on the
+  next hourly scoring run. The SLR history backtest only ever used
+  surface temperature, so calibration wasn't affected.
+
 - **2026-10-18 (evening): weather for the natural base model, and a resume fix.**
   Nick approved collecting humidity, wind and sun now, ahead of the
   natural base-depth model (accumulation, settling, melt, sublimation;

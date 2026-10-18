@@ -209,20 +209,38 @@ export async function fetchEnsembleBand(params: {
 }
 
 /**
+ * Standard-atmosphere heights (m) of the requested pressure levels (ICAO
+ * standard atmosphere). Real heights move by a hundred metres or two with
+ * the weather; close enough to tell whether a level is above a resort.
+ */
+export const PRESSURE_LEVEL_STANDARD_HEIGHT_M = {
+  temperature_850hPa: 1457,
+  temperature_700hPa: 3012,
+  temperature_500hPa: 5574,
+} as const;
+
+/**
  * Extracts the Kuchera-relevant "column Tmax" (max of surface 2m temp and
- * the sub-500hPa pressure-level temps that are present) for a single hourly
- * timestep, in Celsius. Pressure levels below terrain come back null from
- * Open-Meteo and are skipped. Falls back to surface temp alone when no
+ * the sub-500hPa pressure-level temps ABOVE the point) for a single hourly
+ * timestep, in Celsius. Falls back to surface temp alone when no
  * pressure-level data is present — a documented v1 simplification (see
  * lib/scoring/slr/kuchera.ts header).
+ *
+ * Levels below the point's elevation are skipped. Open-Meteo does not
+ * return null for them, as this once assumed: it returns a value
+ * extrapolated down through the mountain, which on a western resort is
+ * far warmer than anything in the real column. At Alta mid (2,900 m) on a
+ * snowy hour the 850 hPa value was +7.7 °C with the surface at -2.4 °C,
+ * and taking the max flagged nearly every western storm as rain (found
+ * 2026-10-18 after Nick said the score didn't tell rain from snow).
  */
-export function columnTmaxC(hourly: OpenMeteoHourlyResponse["hourly"], i: number): number | null {
-  const candidates = [
-    hourly.temperature_2m?.[i],
-    hourly.temperature_850hPa?.[i],
-    hourly.temperature_700hPa?.[i],
-    hourly.temperature_500hPa?.[i],
-  ].filter((v): v is number => typeof v === "number");
+export function columnTmaxC(hourly: OpenMeteoHourlyResponse["hourly"], i: number, elevationM: number): number | null {
+  const levels = (Object.keys(PRESSURE_LEVEL_STANDARD_HEIGHT_M) as Array<keyof typeof PRESSURE_LEVEL_STANDARD_HEIGHT_M>).filter(
+    (level) => PRESSURE_LEVEL_STANDARD_HEIGHT_M[level] > elevationM
+  );
+  const candidates = [hourly.temperature_2m?.[i], ...levels.map((level) => hourly[level]?.[i])].filter(
+    (v): v is number => typeof v === "number"
+  );
   if (candidates.length === 0) return null;
   return Math.max(...candidates);
 }
