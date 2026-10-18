@@ -83,11 +83,12 @@ export function buildForecastUrl(params: {
   if (pastDays > 0) url.searchParams.set("past_days", String(pastDays));
   url.searchParams.set("timezone", "UTC");
   if (model === "hrrr") {
-    // Section 2.1: HRRR sub-hourly res for T+0-48h, bundled via the GFS
-    // family endpoint's model selector. If Open-Meteo's live schema exposes
-    // HRRR as models=hrrr on the gfs endpoint (vs a dedicated path), this is
-    // the one place to adjust.
-    url.searchParams.set("models", "hrrr");
+    // Section 2.1: HRRR (CONUS, T+0-48h) via the GFS-family endpoint's model
+    // selector. This was `models=hrrr`, which Open-Meteo rejects: the first
+    // live cron runs (2026-10-18) wrote GFS rows for most resorts and zero
+    // HRRR rows. Open-Meteo's GFS docs name the domain `ncep_hrrr_conus`,
+    // matching their ncep_gfs_seamless / ncep_nbm_conus naming.
+    url.searchParams.set("models", "ncep_hrrr_conus");
   }
   const apiKey = process.env.OPEN_METEO_API_KEY;
   if (apiKey) url.searchParams.set("apikey", apiKey);
@@ -143,13 +144,34 @@ export interface OpenMeteoEnsembleResponse {
   };
 }
 
+/** Drops the apikey param so error messages (which end up in cron_runs) never carry the key. */
+function redactApiKey(url: string): string {
+  const u = new URL(url);
+  u.searchParams.delete("apikey");
+  return u.toString();
+}
+
+const RETRY_DELAY_MS = 3_000;
+
+/**
+ * One retry on 429 or 5xx. The first live runs lost a handful of resorts
+ * per hour to transient failures (8 of 65 at 03:00 UTC on 2026-10-18), and
+ * the cron runs from Vercel's shared IPs, where Open-Meteo's free tier is
+ * rate-limited per IP. A single short retry recovers the transient cases
+ * without hammering the API.
+ */
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { accept: "application/json" } });
-  if (!res.ok) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { accept: "application/json" } });
+    if (res.ok) return (await res.json()) as T;
+    const retryable = res.status === 429 || res.status >= 500;
+    if (retryable && attempt === 0) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      continue;
+    }
     const body = await res.text().catch(() => "");
-    throw new Error(`Open-Meteo request failed (${res.status}): ${url}\n${body.slice(0, 500)}`);
+    throw new Error(`Open-Meteo request failed (${res.status}): ${redactApiKey(url)}\n${body.slice(0, 500)}`);
   }
-  return (await res.json()) as T;
 }
 
 export async function fetchModelBand(params: {

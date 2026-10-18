@@ -63,10 +63,10 @@ describe("buildForecastUrl", () => {
     expect(url.searchParams.has("models")).toBe(false);
   });
 
-  it("routes HRRR through the gfs path with an explicit models=hrrr selector", () => {
+  it("routes HRRR through the gfs path with an explicit models=ncep_hrrr_conus selector", () => {
     const url = new URL(buildForecastUrl({ baseUrl: "https://api.open-meteo.com", model: "hrrr", resort, elevationM: 2600 }));
     expect(url.pathname).toBe("/v1/gfs");
-    expect(url.searchParams.get("models")).toBe("hrrr");
+    expect(url.searchParams.get("models")).toBe("ncep_hrrr_conus");
   });
 
   it("rounds elevation to the nearest meter", () => {

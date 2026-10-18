@@ -11,7 +11,7 @@ npm install
 cp .env.example .env.local   # fill in real Supabase/Clerk/Resend/etc keys
 ```
 
-1. Create a Supabase project, then run the migrations in `supabase/migrations/` in order (`0001_init.sql` through `0012_enso_calibration.sql`) via the SQL editor or `supabase db push`.
+1. Create a Supabase project, then run the migrations in `supabase/migrations/` in order (`0001_init.sql` through `0013_cron_runs.sql`) via the SQL editor or `supabase db push`.
 2. `npm run seed:resorts` — upserts the full US Epic + Ikon resort roster (`src/lib/config/resorts-seed.ts`), then runs the elevation onboarding check, SNOTEL station resolution, NWS gridpoint resolution, and the Mount Mansfield snow-stake historical backfill for Stowe (item 15 below) against live Open-Meteo/NRCS/NWS/NCEI APIs, then seeds+activates a baseline `model_versions` row if none exists yet (ROADMAP Phase B.1).
 3. `npm run dev` for local dev, or deploy to Vercel and let `vercel.json`'s cron schedule drive ingestion/scoring/alerts.
 4. `npm run test` (vitest — scoring engine unit tests) and `npm run typecheck` before shipping changes.
@@ -19,7 +19,7 @@ cp .env.example .env.local   # fill in real Supabase/Clerk/Resend/etc keys
 
 ## Live infrastructure status (2026-10-16)
 
-- **Supabase** (project `hfvcwrzjekzrpyerefao`): migrations 0001–0012 are applied (0012 on 2026-10-18), the 65-resort roster is seeded, and the `v1 — baseline` model version is active. They were applied as hand-split `execute_sql` chunks, because the MCP `apply_migration` call kept timing out in the agent sandbox. That means Supabase's own migration history table is empty, so `supabase db push` would try to re-run everything. Mark them applied with `supabase migration repair --status applied 0001 … 0012` before pushing with the CLI. Seeding went through SQL, not `npm run seed:resorts`, so the elevation check, SNOTEL/NWS resolution, and the Mansfield backfill have **not** run yet. Run `npm run seed:resorts` once `SUPABASE_SERVICE_ROLE_KEY` is available. It's idempotent: the upsert is a no-op and the baseline version already exists.
+- **Supabase** (project `hfvcwrzjekzrpyerefao`): migrations 0001–0013 are applied (0012–0013 on 2026-10-18), the 65-resort roster is seeded, and the `v1 — baseline` model version is active. They were applied as hand-split `execute_sql` chunks, because the MCP `apply_migration` call kept timing out in the agent sandbox. That means Supabase's own migration history table is empty, so `supabase db push` would try to re-run everything. Mark them applied with `supabase migration repair --status applied 0001 … 0013` before pushing with the CLI. Seeding went through SQL, not `npm run seed:resorts`, so the elevation check, SNOTEL/NWS resolution, and the Mansfield backfill have **not** run yet. Run `npm run seed:resorts` once `SUPABASE_SERVICE_ROLE_KEY` is available. It's idempotent: the upsert is a no-op and the baseline version already exists.
 - **Vercel**: the public and non-secret env vars are set (including a generated `CRON_SECRET`). The secret ones (`SUPABASE_SERVICE_ROLE_KEY`, Clerk, Resend, NCEI, Travelpayouts, Instagram) still have to be added in the Vercel dashboard. `PUBLIC_BASE_URL` points at `https://www.powderseeker.us`, because the `*.vercel.app` URLs sit behind Vercel deployment protection and aren't publicly reachable.
 
 ## Running the historical backtest locally
