@@ -128,6 +128,15 @@ export const ALERT_RATE_LIMIT_HOURS_PER_RESORT = 24;
 // ---------------------------------------------------------------------------
 export const ELEVATION_DISCREPANCY_FLAG_THRESHOLD_M = 150;
 
+/**
+ * Farthest a SNOTEL station can be from a resort and still count as its
+ * ground truth. Every western resort here has a SNTL site within ~10 km;
+ * past this, terrain and elevation differ too much for the station's daily
+ * depth change to say anything about the resort. Resorts with nothing in
+ * range get no station (Stowe has the Mansfield stake instead).
+ */
+export const SNOTEL_MAX_STATION_DISTANCE_KM = 40;
+
 // ---------------------------------------------------------------------------
 // ROADMAP Phase B — self-tuning SLR calibration (recommend-only).
 // Guardrails as designed in ROADMAP.md: a minimum sample size before any

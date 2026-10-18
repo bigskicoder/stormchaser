@@ -149,7 +149,8 @@ async function runChunked(
   await mapWithConcurrency(resorts, pacing.parallel, async (resort) => {
     for (const [start, end] of chunks) {
       if (stopped) return;
-      const key = `${label}:${versionKey}:${resort.slug}:${start}:${end}`;
+      // The station is part of the key so a re-resolved station re-runs its chunks.
+      const key = `${label}:${versionKey}:${resort.slug}:${resort.snotel_station_triplet}:${start}:${end}`;
       if (progress[key]) {
         done += 1;
         continue;

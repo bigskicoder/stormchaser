@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeDepthChangeSeries, findNearestStation } from "@/lib/ingestion/snotel";
+import { computeDepthChangeSeries, findNearestStation, pickSnotelStation } from "@/lib/ingestion/snotel";
 
 describe("findNearestStation", () => {
   const stations = [
@@ -23,6 +23,25 @@ describe("findNearestStation", () => {
     // Slightly closer to station A than B.
     const result = findNearestStation(39.05, -106.05, stations);
     expect(result?.triplet).toBe("A:CO:SNTL");
+  });
+});
+
+describe("pickSnotelStation", () => {
+  it("ignores non-SNTL networks even when they're closer", () => {
+    const stations = [
+      { stationTriplet: "11J61:UT:SNOW", latitude: 40.5883, longitude: -111.6386 },
+      { stationTriplet: "0909:CO:COOP", latitude: 40.589, longitude: -111.638 },
+      { stationTriplet: "766:UT:SNTL", latitude: 40.57, longitude: -111.65 },
+    ];
+    expect(pickSnotelStation(40.5883, -111.6386, stations)?.triplet).toBe("766:UT:SNTL");
+  });
+
+  it("returns null when the nearest SNTL site is too far away", () => {
+    const stations = [
+      { stationTriplet: "2069:NH:SCAN", latitude: 44.1, longitude: -71.2 },
+      { stationTriplet: "1:UT:SNTL", latitude: 40.6, longitude: -111.6 },
+    ];
+    expect(pickSnotelStation(44.0837, -71.2298, stations)).toBeNull();
   });
 });
 

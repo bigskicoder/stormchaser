@@ -40,6 +40,7 @@
 import { getServiceDb } from "@/lib/db/client";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { upsertInBatches } from "@/lib/db/batch-upsert";
+import { SNOTEL_MAX_STATION_DISTANCE_KM } from "@/lib/config/constants";
 import type { Resort } from "@/lib/db/types";
 
 const AWDB_BASE_URL = "https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1";
@@ -79,7 +80,27 @@ export function findNearestStation(
   return { triplet: best.stationTriplet, distanceKm: bestDistance };
 }
 
-/** Fetches the full active SNTL network station list. No server-side spatial filtering — see module header. */
+/**
+ * Picks a resort's ground-truth station: the nearest SNTL site within
+ * SNOTEL_MAX_STATION_DISTANCE_KM, or null.
+ *
+ * Filters by network client-side because the live AWDB /stations response
+ * turned out to ignore `networkCds=SNTL` and return every network (COOP,
+ * SCAN, snow courses, USGS gauges...). The first real run on 2026-10-18
+ * matched Alta to a monthly snow course, Breckenridge and Aspen to COOP
+ * sites, and Northeast resorts to SCAN soil stations 40-170 km away; the
+ * first group returned no daily depth at all (0 days compared) and the
+ * second compared resorts against low-elevation sites in other valleys.
+ * Only SNTL sites report the automated daily SNWD/WTEQ this pipeline needs
+ * at mountain elevations. Exported for unit testing.
+ */
+export function pickSnotelStation(lat: number, lng: number, stations: AwdbStation[]): { triplet: string; distanceKm: number } | null {
+  const sntl = stations.filter((s) => s.stationTriplet.toUpperCase().endsWith(":SNTL"));
+  const nearest = findNearestStation(lat, lng, sntl);
+  return nearest && nearest.distanceKm <= SNOTEL_MAX_STATION_DISTANCE_KM ? nearest : null;
+}
+
+/** Fetches the active station list. The API returns every network despite networkCds — pickSnotelStation filters to SNTL. */
 export async function fetchAllSnotelStations(): Promise<AwdbStation[]> {
   const url = new URL(`${AWDB_BASE_URL}/stations`);
   url.searchParams.set("networkCds", "SNTL");
@@ -102,7 +123,7 @@ export async function resolveNearestSnotelStation(
   lng: number
 ): Promise<{ triplet: string; distanceKm: number } | null> {
   const stations = await fetchAllSnotelStations();
-  return findNearestStation(lat, lng, stations);
+  return pickSnotelStation(lat, lng, stations);
 }
 
 export async function resolveSnotelStationsForAllResorts(): Promise<void> {
@@ -116,14 +137,28 @@ export async function resolveSnotelStationsForAllResorts(): Promise<void> {
   // there's no server-side spatial filter to scope this per-resort anyway.
   const stations = await fetchAllSnotelStations();
 
-  // Only the DB update is async here, so a handful in parallel is plenty.
+  // Only the DB writes are async here, so a handful in parallel is plenty.
   await mapWithConcurrency(resorts, 8, async (resort) => {
     try {
-      const match = findNearestStation(resort.lat, resort.lng, stations);
+      const match = pickSnotelStation(resort.lat, resort.lng, stations);
+      const newTriplet = match?.triplet ?? null;
+      if (resort.snotel_station_triplet && resort.snotel_station_triplet !== newTriplet) {
+        // The old station's observations, and every backtest scored
+        // against them, no longer describe this resort. Drop both so the
+        // backtests and calibration only ever see the current station.
+        // Live 'powder_alert' accuracy rows are kept: they're re-scored
+        // against whatever snotel_actuals hold when the cron next runs.
+        await db.from("snotel_actuals").delete().eq("resort_id", resort.id).eq("source", "snotel");
+        await db
+          .from("accuracy_log")
+          .delete()
+          .eq("resort_id", resort.id)
+          .in("source", ["slr_reanalysis_backtest", "reconciliation_forecast_backtest"]);
+      }
       await db
         .from("resorts")
         .update({
-          snotel_station_triplet: match?.triplet ?? null,
+          snotel_station_triplet: newTriplet,
           snotel_station_distance_km: match?.distanceKm ?? null,
           snotel_resolved_at: new Date().toISOString(),
         })
