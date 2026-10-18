@@ -161,7 +161,14 @@ export const USGS_RELIEF_TILES =
 
 const TILE_PX = 256;
 const MIN_TILE_ZOOM = 4;
-const MAX_TILE_ZOOM = 12;
+/**
+ * The deepest level USGS actually renders for this service. Its tileInfo
+ * lists levels 0-23, but maxScale is 1:4,622,324 (level 7), and deeper
+ * tiles fail; the first live deploy asked for level 9 and showed broken
+ * images (2026-10-18). Level 7 is about 1.2 km per pixel, so at storm
+ * scale the relief is upscaled about 2x, which soft shading tolerates.
+ */
+const MAX_TILE_ZOOM = 7;
 
 export interface BasemapTile {
   url: string;
@@ -174,8 +181,8 @@ export interface BasemapTile {
 
 /**
  * The tiles covering a bbox, at the zoom where a tile pixel is no larger
- * than a stage pixel at `widthPx` (so relief stays sharp, slightly scaled
- * down rather than up).
+ * than a stage pixel at `widthPx`, capped at MAX_TILE_ZOOM (so relief is
+ * slightly scaled down where it can be, and upscaled past the cap).
  */
 export function basemapTilesForBbox(bbox: MercatorBbox, widthPx = RADAR_IMAGE_WIDTH): BasemapTile[] {
   const world = 2 * MERCATOR_LIMIT_M;

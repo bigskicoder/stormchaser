@@ -76,12 +76,12 @@ describe("noaaExportImageUrl", () => {
 });
 
 describe("basemapTilesForBbox", () => {
-  it("covers the whole bbox with tiles no coarser than the stage", () => {
+  it("covers the whole bbox, at the deepest level USGS renders", () => {
     const bbox = radarBboxAround(39.197, -120.235);
     const tiles = basemapTilesForBbox(bbox);
     const zoom = Number(tiles[0]!.url.split("/").slice(-3)[0]);
-    const tileM = (2 * Math.PI * 6378137) / 2 ** zoom;
-    expect(tileM / 256).toBeLessThanOrEqual((bbox.xmax - bbox.xmin) / 960);
+    // USGS only renders shaded relief to level 7.
+    expect(zoom).toBe(7);
     expect(Math.min(...tiles.map((t) => t.left))).toBeLessThanOrEqual(0);
     expect(Math.min(...tiles.map((t) => t.top))).toBeLessThanOrEqual(0);
     expect(Math.max(...tiles.map((t) => t.left + t.width))).toBeGreaterThanOrEqual(100);

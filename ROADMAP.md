@@ -1325,7 +1325,7 @@ the snowfall term) once Nick decides.
 - When the frame on screen has no echoes, the panel says "No rain or snow on radar in this area right now", so an empty radar doesn't look broken. It checks this by reading the frame's pixels; the frames come through our own proxy, so the canvas stays readable.
 - "Rain" now needs both the scorer's too-warm verdict and at least 0.25 mm (0.01") of liquid (`rainExpected`). `is_rain_case` alone is a temperature call, so it's true on dry warm days too.
 
-Not verifiable from the sandbox: its proxy blocks the USGS tiles, so the screenshots used stand-in relief. Nick still needs to confirm the real relief in a browser.
+Not verifiable from the sandbox: its proxy blocks the USGS tiles, so the screenshots used stand-in relief. Nick still needs to confirm the real relief in a browser. The first deploy showed broken images. USGS's service metadata lists levels 0-23, but its maxScale stops at level 7, and the code had asked for level 9. Tiles are now capped at level 7 (upscaled about 2x), and any tile that fails to load is hidden.
 
 ### D.3 — Gear for the day (future idea, not approved to build)
 

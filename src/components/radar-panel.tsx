@@ -241,6 +241,8 @@ export function RadarPanel({
               key={t.url}
               src={t.url}
               alt=""
+              // A tile that fails to load is hidden rather than shown as a broken image.
+              onError={(e) => (e.currentTarget.style.visibility = "hidden")}
               // +1px hides hairline seams where scaled tiles meet.
               style={{ left: `${t.left}%`, top: `${t.top}%`, width: `calc(${t.width}% + 1px)`, height: `calc(${t.height}% + 1px)` }}
             />
