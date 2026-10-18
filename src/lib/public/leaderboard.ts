@@ -20,6 +20,19 @@ export const POWDER_DAY_IN = 6;
 /** Wind-hold probability at which the row shows the wind icon. Matches WindHoldBadge's "likely" tier. */
 export const WIND_HOLD_LIKELY = 0.5;
 
+/** NWS's "measurable precipitation" threshold, 0.01 in, in mm. */
+export const MEASURABLE_PRECIP_MM = 0.25;
+
+/**
+ * Whether a scored day should read as rain. The scorer's is_rain_case is a
+ * temperature verdict (too warm for snow) and is set on dry days too, so
+ * the first live leaderboard (2026-10-18) labeled whole dry weeks "rain".
+ * Rain needs both: too warm, and measurable precipitation.
+ */
+export function rainExpected(s: Pick<SnowScore, "is_rain_case" | "reconciled_swe_mm">): boolean {
+  return s.is_rain_case && (s.reconciled_swe_mm ?? 0) >= MEASURABLE_PRECIP_MM;
+}
+
 export type LeaderboardWindow = 1 | 3 | 5;
 
 export type RegionKey = ClimateRegion | "other";
@@ -99,7 +112,7 @@ export function buildLeaderboardRow(params: {
       date,
       weekday: weekdayLabel(date),
       snowIn: s ? (s.is_rain_case ? 0 : s.estimated_snowfall_in) : null,
-      isRain: s?.is_rain_case ?? false,
+      isRain: s ? rainExpected(s) : false,
       score: s ? Math.round(s.powder_score * 100) : null,
       confidence: s?.confidence_label ?? null,
       windHoldProbability: s?.wind_hold_probability ?? null,

@@ -148,3 +148,59 @@ export function framesFromTimeExtent(extent: unknown): number[] {
   }
   return frames;
 }
+
+/**
+ * Terrain under the radar: USGS National Map shaded relief, a public-domain
+ * US-government basemap served as standard Web Mercator tiles, so no key,
+ * no attribution fee and no usage cap. The first live look (2026-10-18)
+ * showed the state-outline-only background as an empty navy box whenever
+ * no storm was nearby; relief makes the mountains and valleys readable.
+ */
+export const USGS_RELIEF_TILES =
+  "https://basemap.nationalmap.gov/arcgis/rest/services/USGSShadedReliefOnly/MapServer/tile";
+
+const TILE_PX = 256;
+const MIN_TILE_ZOOM = 4;
+const MAX_TILE_ZOOM = 12;
+
+export interface BasemapTile {
+  url: string;
+  /** Position and size as percentages of the bbox, so tiles scale with the stage. */
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The tiles covering a bbox, at the zoom where a tile pixel is no larger
+ * than a stage pixel at `widthPx` (so relief stays sharp, slightly scaled
+ * down rather than up).
+ */
+export function basemapTilesForBbox(bbox: MercatorBbox, widthPx = RADAR_IMAGE_WIDTH): BasemapTile[] {
+  const world = 2 * MERCATOR_LIMIT_M;
+  const metersPerPx = (bbox.xmax - bbox.xmin) / widthPx;
+  const zoom = Math.max(MIN_TILE_ZOOM, Math.min(MAX_TILE_ZOOM, Math.ceil(Math.log2(world / (TILE_PX * metersPerPx)))));
+  const tileM = world / 2 ** zoom;
+  const x0 = Math.floor((bbox.xmin + MERCATOR_LIMIT_M) / tileM);
+  const x1 = Math.floor((bbox.xmax + MERCATOR_LIMIT_M) / tileM);
+  const y0 = Math.floor((MERCATOR_LIMIT_M - bbox.ymax) / tileM);
+  const y1 = Math.floor((MERCATOR_LIMIT_M - bbox.ymin) / tileM);
+  const spanX = bbox.xmax - bbox.xmin;
+  const spanY = bbox.ymax - bbox.ymin;
+  const tiles: BasemapTile[] = [];
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const tileXmin = x * tileM - MERCATOR_LIMIT_M;
+      const tileYmax = MERCATOR_LIMIT_M - y * tileM;
+      tiles.push({
+        url: `${USGS_RELIEF_TILES}/${zoom}/${y}/${x}`,
+        left: ((tileXmin - bbox.xmin) / spanX) * 100,
+        top: ((bbox.ymax - tileYmax) / spanY) * 100,
+        width: (tileM / spanX) * 100,
+        height: (tileM / spanY) * 100,
+      });
+    }
+  }
+  return tiles;
+}

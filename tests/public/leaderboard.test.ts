@@ -42,10 +42,20 @@ describe("buildLeaderboardRow", () => {
     const row = buildLeaderboardRow({
       resort: resort("alta"),
       todayIso: "2026-12-05",
-      scores: [score("2026-12-05", 0.2, 3, { is_rain_case: true })],
+      scores: [score("2026-12-05", 0.2, 3, { is_rain_case: true, reconciled_swe_mm: 8 })],
       pastWeek: [],
     });
     expect(row.days[0]).toMatchObject({ snowIn: 0, isRain: true });
+  });
+
+  it("does not call a warm dry day rain", () => {
+    const row = buildLeaderboardRow({
+      resort: resort("palisades-tahoe"),
+      todayIso: "2026-10-18",
+      scores: [score("2026-10-18", 0.5, 0, { is_rain_case: true, reconciled_swe_mm: 0 })],
+      pastWeek: [],
+    });
+    expect(row.days[0]).toMatchObject({ snowIn: 0, isRain: false });
   });
 
   it("sums only new snow for the past week, and stays null with no readings", () => {

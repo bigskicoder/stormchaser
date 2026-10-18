@@ -6,6 +6,7 @@ import type { Topology, GeometryCollection } from "topojson-specification";
 import {
   RADAR_IMAGE_HEIGHT,
   RADAR_IMAGE_WIDTH,
+  basemapTilesForBbox,
   bboxParam,
   projectToBbox,
   radarBboxAround,
@@ -94,6 +95,27 @@ function declutter<T extends { slug: string; name: string; left: number; top: nu
   return out.reverse();
 }
 
+/**
+ * Whether a loaded radar frame has any echoes at all. Frames come from our
+ * own /api/radar proxy (same origin), so the canvas isn't tainted. A tiny
+ * downscale is enough: any colored pixel survives as nonzero alpha.
+ */
+function frameHasEchoes(img: HTMLImageElement): boolean | null {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 192;
+    canvas.height = 108;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 3; i < data.length; i += 4) if (data[i]! > 24) return true;
+    return false;
+  } catch {
+    return null;
+  }
+}
+
 function timeLabel(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
@@ -125,6 +147,7 @@ export function RadarPanel({
   const [index, setIndex] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState<Set<string>>(new Set());
+  const [echoes, setEchoes] = useState<Record<string, boolean | null>>({});
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(RADAR_IMAGE_WIDTH);
@@ -155,6 +178,7 @@ export function RadarPanel({
     setIndex(null);
     setPlaying(false);
     setFailed(new Set());
+    setEchoes({});
   }, [bbox]);
 
   useEffect(() => {
@@ -171,6 +195,7 @@ export function RadarPanel({
   }, [playing, hasLoop, frameList.length]);
 
   const statePath = useMemo(() => ringsToPath(rings, bbox), [rings, bbox]);
+  const tiles = useMemo(() => basemapTilesForBbox(bbox), [bbox]);
 
   const placedPins = declutter(
     pins
@@ -191,6 +216,8 @@ export function RadarPanel({
         : [`/api/radar/image?bbox=${bboxParam(bbox)}`];
   const shown = Math.min(current, imageSrcs.length - 1);
   const allFailed = imageSrcs.length > 0 && imageSrcs.every((s) => failed.has(s));
+  const shownSrc = imageSrcs[shown];
+  const quiet = shownSrc != null && echoes[shownSrc] === false;
   const timeText =
     frames.status !== "ready"
       ? "loading"
@@ -207,8 +234,20 @@ export function RadarPanel({
         </div>
       </div>
       <div className="ps-radar-stage" role="group" aria-labelledby="radar-title" ref={stageRef}>
+        <div className="ps-radar-relief" aria-hidden="true">
+          {tiles.map((t) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={t.url}
+              src={t.url}
+              alt=""
+              // +1px hides hairline seams where scaled tiles meet.
+              style={{ left: `${t.left}%`, top: `${t.top}%`, width: `calc(${t.width}% + 1px)`, height: `calc(${t.height}% + 1px)` }}
+            />
+          ))}
+        </div>
         <svg viewBox={`0 0 ${RADAR_IMAGE_WIDTH} ${RADAR_IMAGE_HEIGHT}`} preserveAspectRatio="none" aria-hidden="true">
-          <path d={statePath} fill="#16233a" stroke="#3a4f70" strokeWidth={1.2} />
+          <path d={statePath} fill="none" stroke="rgba(226, 236, 255, 0.55)" strokeWidth={1.4} />
         </svg>
         {imageSrcs.map((src, i) => (
           // Every frame stays mounted so the loop plays from cache; only one is visible.
@@ -220,6 +259,10 @@ export function RadarPanel({
             aria-hidden={i === shown ? undefined : true}
             style={{ visibility: i === shown ? "visible" : "hidden" }}
             onError={() => setFailed((f) => new Set(f).add(src))}
+            onLoad={(e) => {
+              const has = frameHasEchoes(e.currentTarget);
+              setEchoes((m) => ({ ...m, [src]: has }));
+            }}
           />
         ))}
         {placedPins.map((p) => (
@@ -238,6 +281,9 @@ export function RadarPanel({
             {p.labeled && p.name}
           </button>
         ))}
+        {quiet && !allFailed && (
+          <div className="ps-radar-quiet">No rain or snow on radar in this area {current === frameList.length - 1 || !hasLoop ? "right now" : "at this time"}.</div>
+        )}
         {allFailed && <div className="ps-radar-msg">Radar isn&rsquo;t loading right now. Try again in a few minutes.</div>}
         <div className="ps-radar-legend" aria-hidden="true">
           Light <span className="scale" /> Heavy
@@ -292,6 +338,10 @@ export function RadarPanel({
             </a>
           </>
         )}
+        . Terrain:{" "}
+        <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank" rel="noreferrer">
+          USGS The National Map
+        </a>
         . Colors show how heavy the precipitation is, not whether it&rsquo;s rain or snow. Mountains block radar beams, so
         snow over high terrain can be heavier than it looks here.
       </p>

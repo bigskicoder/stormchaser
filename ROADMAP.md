@@ -1320,6 +1320,13 @@ scoring change (for example, scaling the confidence and timing terms by
 the snowfall term) once Nick decides.
 
 
+**Follow-up, 2026-10-18 (Nick's first live look: "our radar isn't looking so good").** On a dry morning the panel was an empty navy box with one state line, and the leaderboard labeled dry days "rain". Three changes:
+- Terrain under the radar is now USGS National Map shaded relief. It's a public-domain tile service with no key or cap, darkened to suit the panel. State lines are drawn on top, and USGS is credited in the footer.
+- When the frame on screen has no echoes, the panel says "No rain or snow on radar in this area right now", so an empty radar doesn't look broken. It checks this by reading the frame's pixels; the frames come through our own proxy, so the canvas stays readable.
+- "Rain" now needs both the scorer's too-warm verdict and at least 0.25 mm (0.01") of liquid (`rainExpected`). `is_rain_case` alone is a temperature call, so it's true on dry warm days too.
+
+Not verifiable from the sandbox: its proxy blocks the USGS tiles, so the screenshots used stand-in relief. Nick still needs to confirm the real relief in a browser.
+
 ### D.3 — Gear for the day (future idea, not approved to build)
 
 Nick, 2026-10-18: when someone taps a forecast day, suggest skis and how

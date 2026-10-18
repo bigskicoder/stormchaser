@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  basemapTilesForBbox,
   RADAR_FRAME_STEP_MINUTES,
   RADAR_IMAGE_HEIGHT,
   RADAR_IMAGE_WIDTH,
@@ -71,5 +72,27 @@ describe("noaaExportImageUrl", () => {
     expect(latest.searchParams.get("transparent")).toBe("true");
     expect(latest.searchParams.has("time")).toBe(false);
     expect(new URL(noaaExportImageUrl(b, 123)).searchParams.get("time")).toBe("123");
+  });
+});
+
+describe("basemapTilesForBbox", () => {
+  it("covers the whole bbox with tiles no coarser than the stage", () => {
+    const bbox = radarBboxAround(39.197, -120.235);
+    const tiles = basemapTilesForBbox(bbox);
+    const zoom = Number(tiles[0]!.url.split("/").slice(-3)[0]);
+    const tileM = (2 * Math.PI * 6378137) / 2 ** zoom;
+    expect(tileM / 256).toBeLessThanOrEqual((bbox.xmax - bbox.xmin) / 960);
+    expect(Math.min(...tiles.map((t) => t.left))).toBeLessThanOrEqual(0);
+    expect(Math.min(...tiles.map((t) => t.top))).toBeLessThanOrEqual(0);
+    expect(Math.max(...tiles.map((t) => t.left + t.width))).toBeGreaterThanOrEqual(100);
+    expect(Math.max(...tiles.map((t) => t.top + t.height))).toBeGreaterThanOrEqual(100);
+    expect(tiles.length).toBeLessThan(60);
+  });
+
+  it("puts a tile containing the center point under the center", () => {
+    const bbox = radarBboxAround(40.588, -111.638);
+    const tiles = basemapTilesForBbox(bbox);
+    const center = tiles.filter((t) => t.left <= 50 && t.left + t.width > 50 && t.top <= 50 && t.top + t.height > 50);
+    expect(center).toHaveLength(1);
   });
 });

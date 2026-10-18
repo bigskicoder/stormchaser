@@ -9,7 +9,7 @@ import { WebcamEmbed } from "@/components/webcam-embed";
 import { CONFIDENCE_WEIGHT_BY_LABEL } from "@/lib/config/constants";
 import { getAnonDb } from "@/lib/db/client";
 import type { SnowScore } from "@/lib/db/types";
-import { POWDER_DAY_IN, WIND_HOLD_LIKELY, buildLeaderboardRow, summarizeWindow, weekdayLabel } from "@/lib/public/leaderboard";
+import { POWDER_DAY_IN, WIND_HOLD_LIKELY, buildLeaderboardRow, rainExpected, summarizeWindow, weekdayLabel } from "@/lib/public/leaderboard";
 import { getPastWeekSnowfall, getResortBySlug, getUpcomingScoresForResort } from "@/lib/public/resort-scores";
 import { buildSnowfallTimeline } from "@/lib/public/snowfall-timeline";
 import { kmhToMph } from "@/lib/utils/units";
@@ -29,7 +29,7 @@ function headsUp(scores: SnowScore[]): { kind: "powder" | "wind" | "rain"; day: 
   const out: { kind: "powder" | "wind" | "rain"; day: string; text: string }[] = [];
   for (const s of scores.slice(0, 5)) {
     const day = weekdayLabel(s.target_date);
-    if (s.is_rain_case) out.push({ kind: "rain", day, text: "Rain or mixed precipitation expected." });
+    if (rainExpected(s)) out.push({ kind: "rain", day, text: "Rain or mixed precipitation expected." });
     else if (s.estimated_snowfall_in >= POWDER_DAY_IN)
       out.push({
         kind: "powder",

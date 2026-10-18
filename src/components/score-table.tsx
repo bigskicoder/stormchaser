@@ -1,6 +1,7 @@
 import { ConfidenceBadge } from "@/components/confidence-badge";
 import { WindHoldBadge } from "@/components/wind-hold-badge";
 import type { SnowScore } from "@/lib/db/types";
+import { rainExpected } from "@/lib/public/leaderboard";
 import { kmhToMph } from "@/lib/utils/units";
 
 function windCell(s: SnowScore): string {
@@ -40,7 +41,7 @@ export function ScoreTable({ scores }: { scores: SnowScore[] }) {
           return (
             <tr key={s.id}>
               <td data-label="Date">{dateLabel}</td>
-              <td data-label="Est. snowfall">{s.is_rain_case ? "Rain" : `${s.estimated_snowfall_in.toFixed(1)}"`}</td>
+              <td data-label="Est. snowfall">{rainExpected(s) ? "Rain" : `${s.estimated_snowfall_in.toFixed(1)}"`}</td>
               <td data-label="SLR">{s.is_rain_case ? "–" : `${s.snow_to_liquid_ratio.toFixed(1)}:1`}</td>
               <td data-label="Confidence">
                 <ConfidenceBadge label={s.confidence_label} />
