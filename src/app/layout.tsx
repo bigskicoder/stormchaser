@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Archivo, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import type { ReactNode } from "react";
 import { ConditionalClerkProvider } from "@/components/conditional-clerk-provider";
 import "./globals.css";
@@ -13,6 +13,10 @@ import "./globals.css";
 // decorative: this is a forecast-data product, so the numbers should look
 // measured, not merely formatted.
 const heading = Space_Grotesk({ subsets: ["latin"], weight: ["500", "700"], variable: "--font-heading", display: "swap" });
+// The public pages (leaderboard design, src/app/public.css) use Archivo
+// throughout: a sturdy grotesque with good tabular figures for the score
+// and snowfall columns. The admin pages keep Space Grotesk + JetBrains Mono.
+const archivo = Archivo({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-archivo", display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["500", "700"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
@@ -22,7 +26,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${heading.variable} ${mono.variable}`}>
+    <html lang="en" className={`${heading.variable} ${mono.variable} ${archivo.variable}`}>
       <body>
         <ConditionalClerkProvider>{children}</ConditionalClerkProvider>
       </body>

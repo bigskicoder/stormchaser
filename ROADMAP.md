@@ -1271,6 +1271,54 @@ would be a separate, more disruptive action (clone URLs, webhooks, CI).
   Removed before commit. No regressions found — 118 tests still pass,
   clean build.
 
+### D.2 — Leaderboard redesign with NOAA radar (2026-10-18)
+
+Nick asked for researched, better-structured UI with mockups first. Three
+directions were mocked on a design canvas (ranked leaderboard, map-first,
+trip-planner grid). He picked the **leaderboard** and asked for a radar
+that opens on the leading region and moves to whichever resort is clicked.
+
+- **Home** (`src/app/page.tsx`, `src/components/leaderboard.tsx`): filters
+  for pass, climate region and window (today / 3 / 5 days); a radar panel
+  centered on the top-ranked resort beside a summary card; top-3 cards
+  (desktop only); a ranked list with score bar, 5 daily snow bars, total,
+  best day, confidence, observed past-7-day snow and a wind-hold icon.
+  Clicking a resort (card, list or radar pin) re-centers the radar.
+  Ranking is `lib/public/leaderboard.ts` (pure, tested): best day's score
+  in the window, then total snow. Unscored days stay null and draw as a
+  dashed "no forecast" bar, never as 0".
+- **Resort page**: dark hero with the best 5-day score, radar around the
+  resort (neighbor pins open their pages), heads-up callouts (powder day
+  ≥ 6", rain, wind holds), a "why this score" breakdown of the three
+  powder-score inputs, then the existing chart, conditions, table, webcam.
+- **Snow-bar colors** follow OpenSnow's convention: blue under 6",
+  orange from 6", purple for rain. Bars share one fixed 0-20" scale.
+- **Radar** (`lib/radar/noaa.ts`, `/api/radar/frames`, `/api/radar/image`,
+  `components/radar-panel.tsx`): NOAA/NWS MRMS base reflectivity from the
+  time-enabled ImageServer at mapservices.weather.noaa.gov, 13 frames over
+  2 hours, proxied and CDN-cached by our own routes; IEM's WMS of the same
+  NEXRAD composite is the latest-frame fallback. Basemap is our own
+  us-atlas state outlines (no tile provider, no key). RainViewer was
+  rejected (personal/educational only since Jan 2026, zoom capped at 7).
+  Snow-vs-rain radar coloring needs a paid feed; deferred by Nick ("use
+  NOAA for now... can revisit later on").
+- Removed the old card grid and the react-simple-maps US map components.
+  `react-simple-maps` is still in package.json; drop it in a later
+  dependency cleanup.
+
+**Not verified against the real services:** this sandbox can't reach
+NOAA, IEM or Supabase. The UI was checked in Chromium (desktop 1440 and
+phone 390) against a local mock of the Supabase REST API with generated
+fixture rows, and with the radar routes stubbed. Whether NOAA's
+`exportImage` returns frames for these bboxes has to be confirmed on the
+live site.
+
+**Open issue found while building:** `powder_score` gives a day with 0"
+of snow up to 50/100 (0.35 × confidence weight + 0.15 × lead-time fit), so
+dry, confidently forecast days rank close to modest snow days. Worth a
+scoring change (for example, scaling the confidence and timing terms by
+the snowfall term) once Nick decides.
+
 ---
 
 ## Primer scope audit — full BUILD_PRIMER coverage check

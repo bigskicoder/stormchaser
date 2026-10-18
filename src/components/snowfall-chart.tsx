@@ -1,3 +1,4 @@
+import { POWDER_DAY_IN } from "@/lib/public/leaderboard";
 import type { SnowfallBar } from "@/lib/public/snowfall-timeline";
 
 /**
@@ -20,6 +21,12 @@ const KIND_COLOR: Record<SnowfallBar["kind"], string> = {
   today: "var(--accent)",
   predicted: "var(--high)",
 };
+
+/** Forecast bars follow the leaderboard's convention: orange from 6", blue below (fallbacks for pages without the .ps tokens). */
+function barFill(bar: SnowfallBar, value: number): string {
+  if (bar.kind !== "predicted") return KIND_COLOR[bar.kind];
+  return value >= POWDER_DAY_IN ? "var(--powder, var(--high))" : "var(--snow, var(--high))";
+}
 
 function dayLabel(dateIso: string): string {
   return new Date(`${dateIso}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
@@ -56,7 +63,7 @@ export function SnowfallChart({ bars }: { bars: SnowfallBar[] }) {
                   <text x={x + barWidth / 2} y={y - 8} textAnchor="middle" className="snowfall-chart-value">
                     {value.toFixed(value < 10 ? 1 : 0)}&Prime;
                   </text>
-                  <rect x={x} y={y} width={barWidth} height={barHeight} rx={3} fill={KIND_COLOR[bar.kind]} />
+                  <rect x={x} y={y} width={barWidth} height={barHeight} rx={3} fill={barFill(bar, value)} />
                 </>
               ) : (
                 <text x={x + barWidth / 2} y={PADDING_TOP + plotHeight - 6} textAnchor="middle" className="snowfall-chart-no-data">
@@ -78,7 +85,10 @@ export function SnowfallChart({ bars }: { bars: SnowfallBar[] }) {
           <i style={{ background: KIND_COLOR.today }} /> Today
         </span>
         <span>
-          <i style={{ background: KIND_COLOR.predicted }} /> Forecast
+          <i style={{ background: "var(--snow, var(--high))" }} /> Forecast
+        </span>
+        <span>
+          <i style={{ background: "var(--powder, var(--high))" }} /> Forecast, 6&Prime; or more
         </span>
       </div>
     </div>

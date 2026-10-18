@@ -8,6 +8,8 @@
 
 import { getAnonDb } from "@/lib/db/client";
 import type { Resort, SnotelActual, SnowScore } from "@/lib/db/types";
+import { buildLeaderboardRow, type LeaderboardRow } from "@/lib/public/leaderboard";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { addCalendarDays, localTodayIso } from "@/lib/utils/timezone";
 
 export interface ResortWithScore {
@@ -123,4 +125,41 @@ export async function getPastWeekSnowfall(resortId: string, timeZone: string): P
     .order("date", { ascending: true });
   if (error) throw error;
   return (data ?? []) as SnotelActual[];
+}
+
+/**
+ * Everything the homepage leaderboard needs, one row per active resort.
+ * Score lookups run 8 at a time instead of one after another (65 sequential
+ * round trips made the homepage slow), and the past week's observed snow
+ * for every resort comes from a single query.
+ */
+export async function getLeaderboardRows(): Promise<LeaderboardRow[]> {
+  const db = getAnonDb();
+  const { data: resorts, error } = await db.from("resorts").select("*").eq("active", true).order("name");
+  if (error) throw error;
+  const list = (resorts ?? []) as Resort[];
+
+  // Earliest local "since" across all US timezones is at most a day before
+  // UTC's; each resort's own window is applied per row below.
+  const utcToday = new Date().toISOString().slice(0, 10);
+  const { data: actuals, error: actualsError } = await db
+    .from("snotel_actuals")
+    .select("resort_id, date, observed_depth_change_in")
+    .gte("date", addCalendarDays(utcToday, -PAST_WEEK_WINDOW_DAYS - 1))
+    .range(0, 4999);
+  if (actualsError) throw actualsError;
+  const actualsByResort = new Map<string, Pick<SnotelActual, "date" | "observed_depth_change_in">[]>();
+  for (const a of (actuals ?? []) as Pick<SnotelActual, "resort_id" | "date" | "observed_depth_change_in">[]) {
+    const arr = actualsByResort.get(a.resort_id) ?? [];
+    arr.push(a);
+    actualsByResort.set(a.resort_id, arr);
+  }
+
+  return mapWithConcurrency(list, 8, async (resort) => {
+    const todayIso = localTodayIso(resort.timezone);
+    const since = addCalendarDays(todayIso, -PAST_WEEK_WINDOW_DAYS);
+    const scores = await getUpcomingScoresForResort(resort.id, resort.timezone);
+    const pastWeek = (actualsByResort.get(resort.id) ?? []).filter((a) => a.date >= since && a.date < todayIso);
+    return buildLeaderboardRow({ resort, todayIso, scores, pastWeek });
+  });
 }

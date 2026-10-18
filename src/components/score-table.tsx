@@ -10,7 +10,7 @@ function windCell(s: SnowScore): string {
   return `${sustained} mph${gust}`;
 }
 
-/** Presentational — see resort-card.tsx for why (Phase D /design-preview). */
+/** Presentational: takes scores as props and does no fetching. */
 export function ScoreTable({ scores }: { scores: SnowScore[] }) {
   if (scores.length === 0) {
     return <p className="no-signal">No forecast signal yet for this resort.</p>;

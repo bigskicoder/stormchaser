@@ -1,72 +1,43 @@
-import { BrandRow } from "@/components/brand-row";
-import { ResortCard } from "@/components/resort-card";
-import { ResortMap } from "@/components/resort-map-loader";
+import { Leaderboard } from "@/components/leaderboard";
+import { SiteTopbar } from "@/components/site-topbar";
 import { SubscribeForm } from "@/components/subscribe-form";
-import { getResortsWithBestUpcomingScore } from "@/lib/public/resort-scores";
-import type { ResortWithScore } from "@/lib/public/resort-scores";
+import { getLeaderboardRows } from "@/lib/public/resort-scores";
+import "./public.css";
 
 // Rendered per-request rather than statically: scores change hourly, and a
 // static build has no live Supabase connection to prerender against.
 export const dynamic = "force-dynamic";
 
-function headerStats(resorts: ResortWithScore[]) {
-  const withSignal = resorts.filter((r) => r.bestUpcomingScore);
-  const topScore = withSignal.reduce<number>(
-    (max, r) => Math.max(max, r.bestUpcomingScore?.powder_score ?? 0),
-    0
-  );
-  return {
-    tracked: resorts.length,
-    withSignal: withSignal.length,
-    topScore: Math.round(topScore * 100),
-  };
-}
-
 export default async function HomePage() {
-  const resorts = await getResortsWithBestUpcomingScore();
-  const stats = headerStats(resorts);
+  const rows = await getLeaderboardRows();
 
   return (
-    <>
-      <header className="site-header">
-        <div className="container" style={{ paddingBottom: 0 }}>
-          <BrandRow />
-          <h1>Know before the storm hits.</h1>
-          <p className="tagline">
-            Multi-model storm-signal detection and confidence-scored powder alerts for storm-chasing skiers. Every
-            tracked resort, every score, visible here with no paywall.
-          </p>
-          <div className="header-stats">
-            <div className="header-stat">
-              <div className="num">{stats.tracked}</div>
-              <div className="label">Resorts tracked</div>
-            </div>
-            <div className="header-stat">
-              <div className="num">{stats.withSignal}</div>
-              <div className="label">With active forecast signal</div>
-            </div>
-            <div className="header-stat">
-              <div className="num">{stats.topScore}</div>
-              <div className="label">Highest powder score right now</div>
-            </div>
+    <div className="ps">
+      <SiteTopbar current="leaderboard" />
+      <main className="ps-wrap ps-main">
+        <div className="ps-title-row">
+          <div>
+            <h1>Best bets for powder</h1>
+            <p className="ps-sub">
+              {rows.length} resorts ranked by powder score, from a blend of forecast models updated every hour. Free, no paywall.
+            </p>
           </div>
+        </div>
+
+        <Leaderboard rows={rows} />
+
+        <section id="alerts" className="ps-alerts" aria-labelledby="alerts-title">
+          <h2 id="alerts-title">Get powder alerts</h2>
+          <p>We&rsquo;ll email you when a resort&rsquo;s forecast turns into a real powder day.</p>
           <SubscribeForm />
-        </div>
-      </header>
-      <main className="container" style={{ paddingTop: 40 }}>
-        <h2>Where the signal is right now</h2>
-        <ResortMap resorts={resorts} />
-        <h2 style={{ marginTop: 48 }}>All tracked resorts</h2>
-        <div className="resort-grid">
-          {resorts.map(({ resort, bestUpcomingScore }) => (
-            <ResortCard key={resort.id} resort={resort} bestUpcomingScore={bestUpcomingScore} />
-          ))}
-        </div>
-        <p className="disclaimer">
-          Scores are automated forecast estimates, not guarantees. Indicative fares shown on resort pages are
-          recently-seen cached prices, not live quotes or bookable offers.
+        </section>
+
+        <p className="ps-note">
+          Scores are automated forecast estimates, not guarantees. Past-7-day snowfall is measured at the nearest SNOTEL
+          station within 40 km; resorts without one show a dash. Always check the resort&rsquo;s own report and your local
+          avalanche center before you go.
         </p>
       </main>
-    </>
+    </div>
   );
 }
