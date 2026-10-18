@@ -1914,6 +1914,33 @@ to re-read the original primer to know what's accounted for.
   for the old name afterward. Clean typecheck, clean build, all existing
   tests still passing (no test asserted the old name as a string).
 
+- **2026-10-18 (evening): weather for the natural base model, and a resume fix.**
+  Nick approved collecting humidity, wind and sun now, ahead of the
+  natural base-depth model (accumulation, settling, melt, sublimation;
+  the model itself is not approved to build yet).
+  - The ERA5 archive request now asks for snowfall, relative humidity,
+    dew point, 10 m wind (m/s), shortwave radiation, surface pressure
+    and cloud cover alongside temperature and precipitation. Nine
+    variables, so the call weight is unchanged (Open-Meteo only charges
+    more above 10). If the archive refuses a variable name (400), the
+    request is retried with temperature and precipitation only and the
+    chunk logs a warning, so the SLR backtest can't stop because of it.
+  - New table `reanalysis_daily` (migration 0014): one row per resort per
+    resort-local day at mid elevation, whole days only. The SLR backtest
+    math is unchanged and doesn't read it. Only the 32 resorts with a
+    SNOTEL station are in the historical run, so it fills for those.
+  - Resume fix: chunk dates were "365 days back from today", so they
+    shifted every day and a new day's run matched none of the saved
+    progress keys and started over. Chunks are now water years (Oct 1 to
+    Sep 30, `waterYearChunksNewestFirst`), which never move once a year
+    is finished; only the current water year re-runs daily. Changing the
+    keys means every chunk runs once more, which is also what re-pulls
+    the new variables for years already loaded. accuracy_log rows are
+    upserts, so nothing duplicates. The SLR backtest's oldest row is
+    1997-10-01 for all 32 resorts, which looks like where SNOTEL depth
+    records begin rather than an unfinished load; ERA5 weather is still
+    saved for all 40 years.
+
 - **2026-10-18 (06:00 UTC check): ingest volume and timing fixes.**
   The first 06:00 UTC runs went badly. HRRR/GFS saved 7 of 65 resorts,
   and ICON/ECMWF/GEM saved 2-4, before Vercel's 300 s limit killed both

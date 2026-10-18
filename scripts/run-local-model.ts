@@ -13,7 +13,7 @@
  * one location counts as another call — see open-meteo.com/en/pricing),
  * so a single 40-year request is worth ~1,000 calls, more than the free
  * tier's 600/minute on its own. This driver splits each resort's range
- * into 1-year chunks (~26 weighted calls each), waits out minutely/hourly
+ * into water-year chunks (~26 weighted calls each), waits out minutely/hourly
  * limits, and on the daily limit saves progress and exits so the next run
  * resumes where it stopped. The underlying backtest functions are called
  * unchanged — this only changes how the date range is sliced and paced.
@@ -50,6 +50,7 @@ import { HOURLY_VARIABLES } from "../src/lib/ingestion/open-meteo";
 import { RECONCILIATION_BACKTEST_MODELS } from "../src/lib/backtest/reconciliation-forecast-archive";
 import { mapWithConcurrency } from "../src/lib/utils/concurrency";
 import { WeightedRateLimiter, openMeteoCallWeight } from "../src/lib/utils/weighted-rate-limiter";
+import { waterYearChunksNewestFirst } from "../src/lib/backtest/water-year-chunks";
 import { refreshEnsoOni, resetEnsoPhaseLookupCache } from "../src/lib/enso/oni";
 import type { ModelVersion, Resort } from "../src/lib/db/types";
 
@@ -93,20 +94,6 @@ function parseArgs(argv: string[]): Options {
   return opts;
 }
 
-const isoDaysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-
-/** [start, end] pairs, newest first, 1-year each, overlapping by one day (see file header). */
-function yearlyChunksNewestFirst(years: number): Array<[string, string]> {
-  const chunks: Array<[string, string]> = [];
-  // ERA5 lags ~a week behind real time; same 7-day offset the backtest:* scripts use.
-  for (let i = 0; i < years; i++) {
-    const end = isoDaysAgo(7 + i * 365);
-    const start = isoDaysAgo(7 + (i + 1) * 365 + 1);
-    chunks.push([start, end]);
-  }
-  return chunks;
-}
-
 type RateLimit = "minutely" | "hourly" | "daily" | "unknown" | null;
 
 /** Classifies an Open-Meteo 429 from the error text the backtest functions surface (open-meteo-historical.ts includes the status and response body). */
@@ -140,7 +127,7 @@ async function runChunked(
   pacing: { parallel: number; limiter: WeightedRateLimiter; chunkWeight: number },
   runChunk: (resort: Resort, start: string, end: string) => Promise<{ errors: string[]; compared: number }>
 ) {
-  const chunks = yearlyChunksNewestFirst(years);
+  const chunks = waterYearChunksNewestFirst(years);
   const total = resorts.length * chunks.length;
   let done = 0;
   let compared = 0;

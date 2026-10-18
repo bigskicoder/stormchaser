@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildHistoricalForecastUrl,
   buildHistoricalWeatherUrl,
@@ -51,6 +51,14 @@ describe("buildHistoricalWeatherUrl", () => {
     expect(url.searchParams.get("start_date")).toBe("2015-01-01");
     expect(url.searchParams.get("end_date")).toBe("2015-01-31");
     expect(url.searchParams.get("hourly")).toBe(HISTORICAL_WEATHER_HOURLY_VARIABLES.join(","));
+    expect(url.searchParams.get("wind_speed_unit")).toBe("ms");
+  });
+
+  it("asks for the base-depth model's extra variables without going over Open-Meteo's 10-variable price step", () => {
+    for (const v of ["relative_humidity_2m", "wind_speed_10m", "shortwave_radiation", "surface_pressure"]) {
+      expect(HISTORICAL_WEATHER_HOURLY_VARIABLES).toContain(v);
+    }
+    expect(HISTORICAL_WEATHER_HOURLY_VARIABLES.length).toBeLessThanOrEqual(10);
   });
 
   it("truncates a full timestamp down to just the date", () => {
@@ -101,5 +109,37 @@ describe("buildHistoricalForecastUrl", () => {
   it("excludes hrrr from the models this backtest can request, matching its unavailable-models list", () => {
     expect(HISTORICAL_FORECAST_UNAVAILABLE_MODELS).toContain("hrrr");
     expect(HISTORICAL_FORECAST_MODEL_IDS.hrrr).toBeUndefined();
+  });
+});
+
+describe("fetchHistoricalWeatherWithFallback", () => {
+  it("retries with temperature and precipitation only when the archive refuses a variable", async () => {
+    const { fetchHistoricalWeatherWithFallback } = await import("@/lib/ingestion/open-meteo-historical");
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string) => {
+      calls.push(url);
+      if (calls.length === 1) return new Response("Cannot initialize WeatherVariable", { status: 400 });
+      return new Response(JSON.stringify({ hourly: { time: [] } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const r = await fetchHistoricalWeatherWithFallback({ resort, elevationM: 2900, startDate: "2015-01-01", endDate: "2015-01-31" });
+      expect(new URL(calls[1]!).searchParams.get("hourly")).toBe("temperature_2m,precipitation");
+      expect(r.warning).toContain("temperature and precipitation only");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("passes a rate-limit error straight through so the run driver can pause and resume", async () => {
+    const { fetchHistoricalWeatherWithFallback } = await import("@/lib/ingestion/open-meteo-historical");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Daily API request limit exceeded", { status: 429 })));
+    try {
+      await expect(
+        fetchHistoricalWeatherWithFallback({ resort, elevationM: 2900, startDate: "2015-01-01", endDate: "2015-01-31" })
+      ).rejects.toThrow("(429)");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

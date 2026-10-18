@@ -23,7 +23,8 @@ import { upsertInBatches } from "@/lib/db/batch-upsert";
 import { DEFAULT_SLR_STRATEGY } from "@/lib/config/constants";
 import { getSlrStrategy } from "@/lib/scoring/slr";
 import { backfillSnotelActualsForResort } from "@/lib/ingestion/snotel";
-import { fetchHistoricalWeather, type HistoricalWeatherResponse } from "@/lib/ingestion/open-meteo-historical";
+import { fetchHistoricalWeatherWithFallback, type HistoricalWeatherResponse } from "@/lib/ingestion/open-meteo-historical";
+import { reanalysisDailyRows } from "./reanalysis-daily";
 import type { Resort, SlrStrategyName } from "@/lib/db/types";
 import { utcInstantToLocalDateIso } from "@/lib/utils/timezone";
 import type { EnsoAdjustablePhase } from "@/lib/enso/oni";
@@ -119,10 +120,15 @@ export function computeSlrBacktestDay(params: {
  */
 const SLR_REANALYSIS_BACKTEST_LEAD_TIME_HOURS = 0;
 
+/** 23, not 24: the spring daylight-saving day has 23 local hours. */
+const MIN_HOURS_FOR_WHOLE_DAY = 23;
+
 export interface SlrReanalysisBacktestSummary {
   resortSlug: string;
   daysCompared: number;
   daysSkipped: number;
+  /** reanalysis_daily rows saved (see reanalysis-daily.ts). */
+  weatherDays?: number;
   error?: string;
 }
 
@@ -178,7 +184,21 @@ export async function runSlrReanalysisBacktestForResort(
       (actualsData ?? []).map((r) => [r.date as string, r.observed_depth_change_in as number | null])
     );
 
-    const weather = await fetchHistoricalWeather({ resort, elevationM: resort.elevation_mid_m, startDate, endDate });
+    const { weather, warning } = await fetchHistoricalWeatherWithFallback({ resort, elevationM: resort.elevation_mid_m, startDate, endDate });
+
+    // Saved before the backtest math, which doesn't use these rows: inputs
+    // for the planned natural base-depth model (migration 0014). The request
+    // is in UTC, so a chunk's first and last local days are cut short; only
+    // whole days are saved, and the neighbouring chunk supplies the rest.
+    const weatherDays = await upsertInBatches(
+      db,
+      "reanalysis_daily",
+      reanalysisDailyRows({ resortId: resort.id, timeZone: resort.timezone, elevationM: resort.elevation_mid_m, hourly: weather.hourly })
+        .filter((row) => row.hours >= MIN_HOURS_FOR_WHOLE_DAY)
+        .map((row) => ({ ...row, fetched_at: new Date().toISOString() })),
+      "resort_id,date"
+    );
+
     const buckets = bucketHourlyReanalysisByLocalDay(weather.hourly, resort.timezone);
     const multiplierFor = await backtestMultiplierByDate(resort, overrides);
 
@@ -216,7 +236,7 @@ export async function runSlrReanalysisBacktestForResort(
       "resort_id,target_date,lead_time_hours_at_prediction,source,model_version_id"
     );
 
-    return { resortSlug: resort.slug, daysCompared, daysSkipped };
+    return { resortSlug: resort.slug, daysCompared, daysSkipped, weatherDays, ...(warning ? { error: warning } : {}) };
   } catch (err) {
     return { resortSlug: resort.slug, daysCompared: 0, daysSkipped: 0, error: (err as Error).message };
   }

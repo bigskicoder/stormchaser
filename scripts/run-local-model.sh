@@ -18,7 +18,7 @@
 #   3. Runs `npm run seed:resorts`: elevation check, nearest SNOTEL station,
 #      NWS gridpoint per resort. Safe to re-run.
 #   4. Runs scripts/run-local-model.ts: downloads history from Open-Meteo
-#      and NRCS SNOTEL in 1-year chunks, computes backtest accuracy, writes
+#      and NRCS SNOTEL in water-year chunks, computes backtest accuracy, writes
 #      it to Supabase, generates calibration recommendations, and saves CSV
 #      copies under local-data/.
 #

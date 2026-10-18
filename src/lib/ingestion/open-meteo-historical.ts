@@ -60,30 +60,61 @@ export const HISTORICAL_FORECAST_MODEL_IDS: Partial<Record<ModelName, string>> =
   gem: "gem_global",
 };
 
-/** Minimal, high-confidence hourly variable set for the reanalysis archive — see module header on why this is narrower than the live forecast API's list. */
-export const HISTORICAL_WEATHER_HOURLY_VARIABLES = ["temperature_2m", "precipitation"] as const;
+/** The two variables the SLR backtest itself needs — see module header on why this is narrower than the live forecast API's list. */
+export const HISTORICAL_WEATHER_CORE_VARIABLES = ["temperature_2m", "precipitation"] as const;
+
+/**
+ * Extra ERA5 variables saved to reanalysis_daily for the planned natural
+ * base-depth model (melt needs sun, sublimation needs humidity, wind and
+ * pressure). Requested in the same call as the core pair: Open-Meteo only
+ * charges extra above 10 variables (openMeteoCallWeight), so these cost no
+ * quota. Names follow Open-Meteo's shared variable naming (wind_speed_10m
+ * and cloud_cover confirmed for this endpoint, see header; the rest are
+ * the same names the forecast API uses). If the archive ever refuses one,
+ * fetchHistoricalWeatherWithFallback retries with the core pair so the SLR
+ * backtest never stops because of them.
+ */
+export const HISTORICAL_WEATHER_EXTRA_VARIABLES = [
+  "snowfall",
+  "relative_humidity_2m",
+  "dew_point_2m",
+  "wind_speed_10m",
+  "shortwave_radiation",
+  "surface_pressure",
+  "cloud_cover",
+] as const;
+
+export const HISTORICAL_WEATHER_HOURLY_VARIABLES = [...HISTORICAL_WEATHER_CORE_VARIABLES, ...HISTORICAL_WEATHER_EXTRA_VARIABLES] as const;
+
+type HistoricalWeatherVariable = (typeof HISTORICAL_WEATHER_HOURLY_VARIABLES)[number];
 
 export interface HistoricalWeatherResponse {
-  hourly: {
-    time: string[];
-    temperature_2m?: (number | null)[];
-    precipitation?: (number | null)[];
-  };
+  /** Echoed by Open-Meteo: the elevation the series was downscaled to. */
+  elevation?: number;
+  hourly: { time: string[] } & Partial<Record<HistoricalWeatherVariable, (number | null)[]>>;
 }
 
 function dateOnly(iso: string): string {
   return iso.slice(0, 10);
 }
 
-export function buildHistoricalWeatherUrl(params: { resort: Resort; elevationM: number; startDate: string; endDate: string }): string {
-  const { resort, elevationM, startDate, endDate } = params;
+export function buildHistoricalWeatherUrl(params: {
+  resort: Resort;
+  elevationM: number;
+  startDate: string;
+  endDate: string;
+  variables?: readonly string[];
+}): string {
+  const { resort, elevationM, startDate, endDate, variables = HISTORICAL_WEATHER_HOURLY_VARIABLES } = params;
   const url = new URL(`${ARCHIVE_BASE_URL.replace(/\/$/, "")}/v1/archive`);
   url.searchParams.set("latitude", resort.lat.toFixed(4));
   url.searchParams.set("longitude", resort.lng.toFixed(4));
   url.searchParams.set("elevation", String(Math.round(elevationM)));
   url.searchParams.set("start_date", dateOnly(startDate));
   url.searchParams.set("end_date", dateOnly(endDate));
-  url.searchParams.set("hourly", HISTORICAL_WEATHER_HOURLY_VARIABLES.join(","));
+  url.searchParams.set("hourly", variables.join(","));
+  // m/s, not the km/h default: the sublimation formula works in SI units.
+  url.searchParams.set("wind_speed_unit", "ms");
   url.searchParams.set("timezone", "UTC");
   return url.toString();
 }
@@ -126,8 +157,31 @@ export async function fetchHistoricalWeather(params: {
   elevationM: number;
   startDate: string;
   endDate: string;
+  variables?: readonly string[];
 }): Promise<HistoricalWeatherResponse> {
   return fetchJson<HistoricalWeatherResponse>(buildHistoricalWeatherUrl(params));
+}
+
+/**
+ * Full variable set first; on a 400 (Open-Meteo's answer to an unknown
+ * variable) retries with just the core pair and says so in `warning`.
+ * Rate-limit (429) and server errors are thrown unchanged so the run
+ * driver's pacing and resume logic still sees them.
+ */
+export async function fetchHistoricalWeatherWithFallback(params: {
+  resort: Resort;
+  elevationM: number;
+  startDate: string;
+  endDate: string;
+}): Promise<{ weather: HistoricalWeatherResponse; warning?: string }> {
+  try {
+    return { weather: await fetchHistoricalWeather(params) };
+  } catch (err) {
+    const message = (err as Error).message;
+    if (!message.includes("(400)")) throw err;
+    const weather = await fetchHistoricalWeather({ ...params, variables: HISTORICAL_WEATHER_CORE_VARIABLES });
+    return { weather, warning: `archive refused the extra weather variables, saved temperature and precipitation only: ${message.slice(0, 200)}` };
+  }
 }
 
 export async function fetchHistoricalForecast(params: {
