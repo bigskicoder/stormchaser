@@ -57,13 +57,26 @@ export const DEFAULT_SNOWPACK_PARAMS: SnowpackParams = {
   c2: 21,
 };
 
-/** Fitting bounds, inside SNOW-17's published ranges (MFMAX 0.5-2.0 and MFMIN 0.05-0.6 mm/°C/6h, x4 for a day). */
+/**
+ * Fitting bounds. Started inside SNOW-17's published ranges (SCF 0.7-1.6;
+ * MFMAX 0.5-2.0 and MFMIN 0.05-0.6 mm/°C/6h, x4 for a day) plus Anderson's
+ * compaction constants. The first real fit (2026-10-20, 12 resorts) pinned
+ * several resorts against those edges, so four were widened:
+ * - SCF to 2.5: here it corrects ERA5's ~30 km grid, not just gauge
+ *   undercatch. ERA5 smooths the mountains away and underestimates
+ *   orographic snowfall; Alta wanted more than 1.6.
+ * - Melt factor max to 10/day: spring melt from daily ERA5 temperatures
+ *   needed more than SNOW-17's 8 at several Colorado and Montana sites.
+ * - Sublimation coefficient down to 0.0001: most resorts sat on 0.0005,
+ *   i.e. daily-mean ERA5 humidity and wind overstate the vapour deficit.
+ * - Compaction c1 down to 0.002: most sat on 0.01 (settling too fast).
+ */
 export const SNOWPACK_PARAM_BOUNDS: Record<keyof SnowpackParams, [number, number]> = {
-  scf: [0.7, 1.6],
+  scf: [0.7, 2.5],
   mfMin: [0.2, 2.4],
-  mfMax: [2, 8],
-  cE: [0.0005, 0.004],
-  c1: [0.01, 0.05],
+  mfMax: [2, 10],
+  cE: [0.0001, 0.004],
+  c1: [0.002, 0.05],
   c2: [15, 30],
 };
 
