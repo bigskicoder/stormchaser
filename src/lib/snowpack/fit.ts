@@ -59,6 +59,9 @@ export interface SnowpackMetrics {
   climatologySkill: number | null;
   medianPeakErrorPct: number | null;
   medianMeltOutErrorDays: number | null;
+  /** Signed medians, model minus station: + is too much snow at the peak / melting out late. For diagnosis, not the bar. */
+  medianPeakBiasPct: number | null;
+  medianMeltOutBiasDays: number | null;
   depthDays: number;
   depthNse: number | null;
   depthRmseCm: number | null;
@@ -216,8 +219,8 @@ export function scoreSnowpack(pairs: Paired[], climatologyFrom: Paired[] = pairs
     climNum += (x.modelSwe - x.obsSwe!) ** 2;
   }
 
-  const peakErrors: number[] = [];
-  const meltOutErrors: number[] = [];
+  const peakBiases: number[] = [];
+  const meltOutBiases: number[] = [];
   const byWinter = new Map<number, Paired[]>();
   for (const x of pairs) byWinter.set(x.waterYear, [...(byWinter.get(x.waterYear) ?? []), x]);
   for (const rows of byWinter.values()) {
@@ -226,7 +229,7 @@ export function scoreSnowpack(pairs: Paired[], climatologyFrom: Paired[] = pairs
     const obsPeak = Math.max(...withObs.map((x) => x.obsSwe!));
     if (obsPeak < MIN_PEAK_FOR_PEAK_METRICS_MM) continue;
     const modelPeak = Math.max(...rows.map((x) => x.modelSwe));
-    peakErrors.push((Math.abs(modelPeak - obsPeak) / obsPeak) * 100);
+    peakBiases.push(((modelPeak - obsPeak) / obsPeak) * 100);
 
     const meltOut = (values: Array<[string, number]>) => {
       let peakIdx = 0;
@@ -238,7 +241,7 @@ export function scoreSnowpack(pairs: Paired[], climatologyFrom: Paired[] = pairs
     };
     const obsOut = meltOut(withObs.map((x) => [x.date, x.obsSwe!]));
     const modelOut = meltOut(rows.map((x) => [x.date, x.modelSwe]));
-    if (obsOut && modelOut) meltOutErrors.push(Math.abs(new Date(modelOut).getTime() - new Date(obsOut).getTime()) / 86_400_000);
+    if (obsOut && modelOut) meltOutBiases.push((new Date(modelOut).getTime() - new Date(obsOut).getTime()) / 86_400_000);
   }
 
   const depthErr = depth.length ? Math.sqrt(depth.reduce((s, x) => s + (x.modelDepth - x.obsDepth!) ** 2, 0) / depth.length) : null;
@@ -248,8 +251,10 @@ export function scoreSnowpack(pairs: Paired[], climatologyFrom: Paired[] = pairs
     sweDays: swe.length,
     sweNse: nse(swe, (x) => [x.modelSwe, x.obsSwe!]),
     climatologySkill: climDen > 0 ? 1 - climNum / climDen : null,
-    medianPeakErrorPct: median(peakErrors),
-    medianMeltOutErrorDays: median(meltOutErrors),
+    medianPeakErrorPct: median(peakBiases.map(Math.abs)),
+    medianMeltOutErrorDays: median(meltOutBiases.map(Math.abs)),
+    medianPeakBiasPct: median(peakBiases),
+    medianMeltOutBiasDays: median(meltOutBiases),
     depthDays: depth.length,
     depthNse: nse(depth, (x) => [x.modelDepth, x.obsDepth!]),
     depthRmseCm: depthErr,

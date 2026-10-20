@@ -53,5 +53,7 @@ describe("scoreSnowpack", () => {
     expect(m.sweNse).toBe(1);
     expect(m.medianPeakErrorPct).toBe(0);
     expect(m.medianMeltOutErrorDays).toBe(0);
+    expect(m.medianPeakBiasPct).toBe(0);
+    expect(m.medianMeltOutBiasDays).toBe(0);
   });
 });

@@ -58,7 +58,7 @@ async function main() {
       if (result.fit.passes) passed += 1;
       console.log(
         `${resort.slug}: ${result.fit.passes ? "PASS" : "fail"} | ${result.winters} winters | held-out SWE NSE ${h.sweNse?.toFixed(3) ?? "n/a"}, ` +
-          `peak err ${h.medianPeakErrorPct?.toFixed(1) ?? "n/a"}%, melt-out err ${h.medianMeltOutErrorDays?.toFixed(0) ?? "n/a"} d, ` +
+          `peak err ${h.medianPeakErrorPct?.toFixed(1) ?? "n/a"}%, melt-out err ${h.medianMeltOutErrorDays?.toFixed(0) ?? "n/a"} d (bias peak ${h.medianPeakBiasPct?.toFixed(0) ?? "n/a"}%, melt-out ${h.medianMeltOutBiasDays?.toFixed(0) ?? "n/a"} d), ` +
           `depth NSE ${h.depthNse?.toFixed(3) ?? "n/a"} | ${result.fit.failedChecks.join("; ") || "all checks met"} | ` +
           `params ${JSON.stringify(result.fit.params, (_, v) => (typeof v === "number" ? Number(v.toPrecision(3)) : v))} | ` +
           `station elev ${stationElevationM?.toFixed(0) ?? "?"} m | ${((Date.now() - started) / 1000).toFixed(0)} s`
