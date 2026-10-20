@@ -1968,6 +1968,14 @@ to re-read the original primer to know what's accounted for.
     on demand) and `/api/cron/snowpack` every 6 h at :50. A resort with a
     station but no passing fit gets no estimate.
   - Not built yet: the site display. Mockups come first.
+  - Sunshine term (same evening). The first full fit (29 resorts) passed
+    14; five failures melted out 8-13 days late and most fits pinned the
+    December melt factor at its floor, the signature of a missing sun
+    term. Added Hock/Pellicciotti enhanced-temperature-index melt: a
+    fitted factor (srf) times absorbed ERA5 shortwave on days above
+    freezing, with Douville (1995) snow albedo. Taken without waiting for
+    Nick (his card's recommended option): it uses data already stored and
+    changes nothing for uncalibrated resorts (srf defaults to 0).
 
 - **2026-10-18 (late): hour-by-hour rain/snow split.** Nick: "why can't we
   split days into mix of snow and rain? change over is important." A day

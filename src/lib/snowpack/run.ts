@@ -67,7 +67,8 @@ interface ParamsRow {
  * rather than a bad one).
  */
 export function paramsForResort(resort: Resort, row: ParamsRow | undefined): { params: SnowpackParams; calibrated: boolean } | null {
-  if (row) return row.passes ? { params: row.params, calibrated: true } : null;
+  // Defaults fill parameters added after the row was fitted (srf, 2026-10-20).
+  if (row) return row.passes ? { params: { ...DEFAULT_SNOWPACK_PARAMS, ...row.params }, calibrated: true } : null;
   const hasStation = Boolean(resort.snotel_station_triplet || resort.ghcnd_station_id);
   // A station but no fit yet: wait for the fit rather than show defaults.
   return hasStation ? null : { params: DEFAULT_SNOWPACK_PARAMS, calibrated: false };
@@ -128,7 +129,8 @@ export async function runSnowpackForAllResorts(now: Date = new Date()): Promise<
       const recent = era5.slice(-30);
       const rh = recent.length ? recent.reduce((s, d) => s + d.rhPct, 0) / recent.length : FALLBACK_RH_PCT;
       const lastDate = addCalendarDays(today, SNOWPACK_PROJECTION_DAYS);
-      const forecast = await loadForecastDays(resort, addCalendarDays(lastEra5, 1), lastDate, rh);
+      const sw = recent.length ? recent.reduce((s, d) => s + (d.shortwaveMjM2 ?? 0), 0) / recent.length : 0;
+      const forecast = await loadForecastDays(resort, addCalendarDays(lastEra5, 1), lastDate, rh, sw);
       const days = seasonDays(wy, era5, forecast, lastDate);
       const results = runSnowpack(days, chosen.params);
       const computedAt = now.toISOString();

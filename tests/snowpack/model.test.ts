@@ -3,6 +3,7 @@ import {
   DEFAULT_SNOWPACK_PARAMS,
   dailySublimationMm,
   newSnowDensity,
+  nextAlbedo,
   positiveDegreeDays,
   runSnowpack,
   seasonalMeltFactor,
@@ -79,5 +80,31 @@ describe("runSnowpack over a synthetic mountain winter", () => {
     const warm = runSnowpack(syntheticWinter(2020, { tempShiftC: 2 }), DEFAULT_SNOWPACK_PARAMS);
     const warmPeak = Math.max(...warm.map((r) => r.sweMm));
     expect(warmPeak).toBeLessThan(peak.sweMm);
+  });
+});
+
+describe("sunshine melt", () => {
+  it("darkens melting snow toward 0.5 and brightens it with new snow", () => {
+    let a = 0.85;
+    for (let i = 0; i < 20; i++) a = nextAlbedo(a, 0, true);
+    expect(a).toBeGreaterThan(0.5);
+    expect(a).toBeLessThan(0.51);
+    expect(nextAlbedo(0.85, 0, false)).toBeCloseTo(0.842, 3);
+    expect(nextAlbedo(0.6, 10, true)).toBeCloseTo(0.85, 5);
+    expect(nextAlbedo(0.6, 5, false)).toBeCloseTo(0.6 - 0.008 + (0.85 - 0.592) / 2, 5);
+  });
+
+  it("melts the pack out sooner when the sun counts, and not at all on days below freezing", () => {
+    const days = syntheticWinter(2020);
+    const meltOut = (p: typeof DEFAULT_SNOWPACK_PARAMS) => {
+      const r = runSnowpack(days, p);
+      const peakIdx = r.reduce((best, x, i) => (x.sweMm > r[best]!.sweMm ? i : best), 0);
+      return r.findIndex((x, i) => i > peakIdx && x.sweMm === 0);
+    };
+    expect(meltOut({ ...DEFAULT_SNOWPACK_PARAMS, srf: 0.5 })).toBeLessThan(meltOut(DEFAULT_SNOWPACK_PARAMS));
+    const frozen = days.map((d) => ({ ...d, tMeanC: -15, tMinC: -20, tMaxC: -10 }));
+    const a = runSnowpack(frozen, DEFAULT_SNOWPACK_PARAMS);
+    const b = runSnowpack(frozen, { ...DEFAULT_SNOWPACK_PARAMS, srf: 2 });
+    expect(b.map((x) => x.sweMm)).toEqual(a.map((x) => x.sweMm));
   });
 });

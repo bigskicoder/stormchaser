@@ -3,7 +3,7 @@ import { runSnowpack, type SnowpackParams } from "@/lib/snowpack/model";
 import { fitAndScoreResort, scoreSnowpack, type SnowpackWinter } from "@/lib/snowpack/fit";
 import { syntheticWinter } from "./synthetic";
 
-const truth: SnowpackParams = { scf: 1.3, mfMin: 1, mfMax: 5.5, cE: 0.0025, c1: 0.02, c2: 24 };
+const truth: SnowpackParams = { scf: 1.3, mfMin: 1, mfMax: 5.5, cE: 0.0025, c1: 0.02, c2: 24, srf: 0.4 };
 
 function winters(n: number, p: SnowpackParams, opts: { depthOnly?: boolean } = {}): SnowpackWinter[] {
   return Array.from({ length: n }, (_, i) => {

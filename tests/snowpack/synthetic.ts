@@ -18,6 +18,8 @@ export function syntheticWinter(waterYear: number, opts: { tempShiftC?: number; 
       rhPct: stormy ? 95 : 55,
       windMs: 4,
       pressureHpa: 720,
+      // Sunshine peaks near the June solstice (day ~263); storms cut it.
+      shortwaveMjM2: stormy ? 5 : 16 + 11 * Math.sin(((i - 172) * 2 * Math.PI) / 365),
     });
   }
   return days;

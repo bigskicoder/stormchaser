@@ -6,7 +6,8 @@
  * - Each winter (water year, Oct 1 - Sep 30) runs on its own from bare
  *   ground, so winters are independent and can be held out cleanly.
  * - Fitting is two-stage, because SWE doesn't depend on settling: stage 1
- *   fits SCF, the two melt factors and the sublimation coefficient to SWE;
+ *   fits SCF, the two melt factors, the sunshine factor and the
+ *   sublimation coefficient to SWE;
  *   stage 2 fits the two compaction constants to depth with stage 1 fixed.
  *   That is the plan's "SWE first, then depth".
  * - No peeking: winters are split into 5 folds (round-robin by year), each
@@ -80,7 +81,7 @@ const MIN_PEAK_FOR_PEAK_METRICS_MM = 50;
 /** SWE at or under this counts as melted out. */
 const MELT_OUT_SWE_MM = 10;
 
-const STAGE1_KEYS = ["scf", "mfMin", "mfMax", "cE"] as const;
+const STAGE1_KEYS = ["scf", "mfMin", "mfMax", "cE", "srf"] as const;
 const STAGE2_KEYS = ["c1", "c2"] as const;
 type ParamKey = keyof SnowpackParams;
 

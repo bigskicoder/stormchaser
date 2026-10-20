@@ -10,8 +10,10 @@
  *   1. Split precipitation into snow and rain (linear between -1 and 3 °C).
  *   2. New snow adds SWE (times the fitted snowfall correction SCF) and
  *      depth at the Hedstrom & Pomeroy (1998) new-snow density.
- *   3. Melt: temperature index on dry days, SNOW-17's rain-on-snow energy
- *      balance on rain days. A cold pack first has to pay off its cold
+ *   3. Melt: temperature index plus a sunshine term on dry days (Hock 1999 /
+ *      Pellicciotti et al. 2005 "enhanced temperature index": absorbed
+ *      shortwave times a fitted factor, with Douville et al. 1995 snow
+ *      albedo), SNOW-17's rain-on-snow energy balance on rain days. A cold pack first has to pay off its cold
  *      content (heat deficit) before anything melts.
  *   4. Sublimation: bulk transfer, E = rho_air * C_E * U * (q_sat(Ts) - q_air).
  *   5. Liquid water: the pack holds 5% of its ice as liquid; the rest runs
@@ -45,6 +47,12 @@ export interface SnowpackParams {
   c1: number;
   /** Anderson compaction density coefficient, cm³/g (Anderson 1976: 21). */
   c2: number;
+  /**
+   * Shortwave melt factor, mm of melt per MJ/m² of absorbed sunshine on days
+   * that reach above freezing. Pure energy would be ~3 mm/MJ; the fitted
+   * value is lower because longwave and turbulent losses are lumped in.
+   */
+  srf: number;
 }
 
 /** SNOW-17 / Anderson starting values, also the "uncalibrated" defaults. */
@@ -55,6 +63,9 @@ export const DEFAULT_SNOWPACK_PARAMS: SnowpackParams = {
   cE: 0.0015,
   c1: 0.026,
   c2: 21,
+  // 0 keeps the uncalibrated defaults pure SNOW-17, whose melt factors
+  // already include the sun's average effect. Fits start from here too.
+  srf: 0,
 };
 
 /**
@@ -70,14 +81,18 @@ export const DEFAULT_SNOWPACK_PARAMS: SnowpackParams = {
  * - Sublimation coefficient down to 0.0001: most resorts sat on 0.0005,
  *   i.e. daily-mean ERA5 humidity and wind overstate the vapour deficit.
  * - Compaction c1 down to 0.002: most sat on 0.01 (settling too fast).
+ * The second fit (same day, 29 resorts) left five melting out 8-13 days
+ * late, so a sunshine term (srf) was added; with it the temperature melt
+ * factors can drop lower (mfMin to 0, mfMax to 1).
  */
 export const SNOWPACK_PARAM_BOUNDS: Record<keyof SnowpackParams, [number, number]> = {
   scf: [0.7, 2.5],
-  mfMin: [0.2, 2.4],
-  mfMax: [2, 10],
+  mfMin: [0, 2.4],
+  mfMax: [1, 10],
   cE: [0.0001, 0.004],
   c1: [0.002, 0.05],
   c2: [15, 30],
+  srf: [0, 2],
 };
 
 export interface SnowpackDay {
@@ -93,6 +108,8 @@ export interface SnowpackDay {
   windMs: number;
   /** Surface pressure, hPa. */
   pressureHpa: number;
+  /** Downward shortwave radiation, daily total, MJ/m². Missing counts as none. */
+  shortwaveMjM2?: number;
 }
 
 export interface SnowpackState {
@@ -105,6 +122,8 @@ export interface SnowpackState {
   /** Antecedent temperature index, °C (SNOW-17's proxy for snow-surface temperature). */
   atiC: number;
   depthCm: number;
+  /** Snow surface albedo, 0-1. */
+  albedo: number;
 }
 
 export interface SnowpackDayResult {
@@ -119,7 +138,10 @@ export interface SnowpackDayResult {
   runoffMm: number;
 }
 
-export const EMPTY_SNOWPACK: SnowpackState = { sweMm: 0, liquidMm: 0, coldContentMm: 0, atiC: 0, depthCm: 0 };
+const ALBEDO_FRESH = 0.85;
+const ALBEDO_MIN = 0.5;
+
+export const EMPTY_SNOWPACK: SnowpackState = { sweMm: 0, liquidMm: 0, coldContentMm: 0, atiC: 0, depthCm: 0, albedo: ALBEDO_FRESH };
 
 const SNOW_ALL_BELOW_C = -1;
 const RAIN_ALL_ABOVE_C = 3;
@@ -202,6 +224,19 @@ export function rainOnSnowMeltMm(day: SnowpackDay, rainMm: number): number {
   return Math.max(0, radiation + rainHeat + condensation);
 }
 
+/**
+ * Snow albedo after one day (Douville et al. 1995, as in ISBA): dry snow
+ * darkens slowly (0.008 a day), melting snow decays toward 0.5 (e-folding
+ * 0.24 a day), and new snow brightens it back toward 0.85, fully at 10 mm
+ * of water.
+ */
+export function nextAlbedo(albedo: number, newSnowMm: number, melting: boolean): number {
+  let a = melting ? ALBEDO_MIN + (albedo - ALBEDO_MIN) * Math.exp(-0.24) : albedo - 0.008;
+  a = Math.max(ALBEDO_MIN, a);
+  if (newSnowMm > 0) a += (ALBEDO_FRESH - a) * Math.min(1, newSnowMm / 10);
+  return Math.min(ALBEDO_FRESH, a);
+}
+
 /** Standard-atmosphere surface pressure at an elevation, hPa: for days with no pressure reading. */
 export function standardPressureHpa(elevationM: number): number {
   return 1013.25 * Math.pow(1 - 2.25577e-5 * elevationM, 5.25588);
@@ -219,7 +254,7 @@ export function stepSnowpack(
   p: SnowpackParams,
   opts: SnowpackRunOptions = {}
 ): { state: SnowpackState; result: SnowpackDayResult } {
-  let { sweMm, liquidMm, coldContentMm, atiC, depthCm } = state;
+  let { sweMm, liquidMm, coldContentMm, atiC, depthCm, albedo } = state;
   const precip = Math.max(0, day.precipMm);
   const f = snowFraction(day.tMeanC);
   const newSnow = p.scf * f * precip;
@@ -240,7 +275,9 @@ export function stepSnowpack(
 
   if (sweMm > 0) {
     // 3. Energy in: melt (dry day) or rain-on-snow melt, plus the heat rain carries.
-    const potentialMelt = rain >= RAIN_ON_SNOW_MIN_MM ? rainOnSnowMeltMm(day, rain) : mf * positiveDegreeDays(day.tMinC, day.tMaxC);
+    // Sunshine melts only on days that get above freezing (ETI's threshold).
+    const solar = day.tMaxC > 0 ? p.srf * (1 - albedo) * Math.max(0, day.shortwaveMjM2 ?? 0) : 0;
+    const potentialMelt = rain >= RAIN_ON_SNOW_MIN_MM ? rainOnSnowMeltMm(day, rain) : mf * positiveDegreeDays(day.tMinC, day.tMaxC) + solar;
 
     // Cold content: grows on cold days (negative melt factor), is paid off first by melt energy.
     atiC = atiC + TIPM_DAILY * (Math.min(day.tMeanC, 0) - atiC);
@@ -297,15 +334,18 @@ export function stepSnowpack(
     }
   }
 
+  albedo = nextAlbedo(albedo, newSnow, melt > 0 || liquidMm > 0);
+
   if (sweMm < BARE_GROUND_SWE_MM) {
     runoff += sweMm;
     sweMm = 0;
     liquidMm = 0;
     coldContentMm = 0;
     depthCm = 0;
+    albedo = ALBEDO_FRESH;
   }
 
-  const next: SnowpackState = { sweMm, liquidMm, coldContentMm, atiC, depthCm };
+  const next: SnowpackState = { sweMm, liquidMm, coldContentMm, atiC, depthCm, albedo };
   return {
     state: next,
     result: {

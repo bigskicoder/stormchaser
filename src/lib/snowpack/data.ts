@@ -48,6 +48,7 @@ interface ReanalysisRow {
   rh_mean_pct: number | null;
   wind_mean_ms: number | null;
   pressure_mean_hpa: number | null;
+  shortwave_mj_m2: number | null;
 }
 
 /**
@@ -60,7 +61,7 @@ export async function loadReanalysisDays(resortId: string, opts: { from?: string
   const rows = await selectAll<ReanalysisRow>((a, b) => {
     let q = db
       .from("reanalysis_daily")
-      .select("date, elevation_m, precip_mm, temp_min_c, temp_max_c, temp_mean_c, rh_mean_pct, wind_mean_ms, pressure_mean_hpa")
+      .select("date, elevation_m, precip_mm, temp_min_c, temp_max_c, temp_mean_c, rh_mean_pct, wind_mean_ms, pressure_mean_hpa, shortwave_mj_m2")
       .eq("resort_id", resortId)
       .order("date");
     if (opts.from) q = q.gte("date", opts.from);
@@ -79,6 +80,7 @@ export async function loadReanalysisDays(resortId: string, opts: { from?: string
       rhPct: r.rh_mean_pct != null ? Number(r.rh_mean_pct) : FALLBACK_RH_PCT,
       windMs: r.wind_mean_ms != null ? Number(r.wind_mean_ms) : 0,
       pressureHpa: r.pressure_mean_hpa != null ? Number(r.pressure_mean_hpa) : standardPressureHpa(Number(r.elevation_m)),
+      shortwaveMjM2: r.shortwave_mj_m2 != null ? Number(r.shortwave_mj_m2) : 0,
     });
   }
   return { days, elevationM: rows.length ? Number(rows[rows.length - 1]!.elevation_m) : null };
@@ -154,7 +156,7 @@ const MIN_HOURS_PER_MODEL_DAY = 20;
  * Surface temperature (temperature_2m), not the column maximum scoring uses.
  * Pure.
  */
-export function forecastHoursToDays(hours: ForecastHour[], opts: { timeZone: string; rhPct: number; pressureHpa: number }): SnowpackDay[] {
+export function forecastHoursToDays(hours: ForecastHour[], opts: { timeZone: string; rhPct: number; pressureHpa: number; shortwaveMjM2?: number }): SnowpackDay[] {
   const perModelDay = new Map<string, { precip: number; temps: number[]; winds: number[] }>();
   for (const h of hours) {
     const date = utcInstantToLocalDateIso(new Date(h.valid_time).getTime(), opts.timeZone);
@@ -193,12 +195,17 @@ export function forecastHoursToDays(hours: ForecastHour[], opts: { timeZone: str
         rhPct: opts.rhPct,
         windMs: winds.length ? mean(winds) : 0,
         pressureHpa: opts.pressureHpa,
+        shortwaveMjM2: opts.shortwaveMjM2 ?? 0,
       };
     });
 }
 
-/** Forecast weather for a resort's mid band, local dates [fromDate, toDate]. */
-export async function loadForecastDays(resort: Resort, fromDate: string, toDate: string, rhPct: number): Promise<SnowpackDay[]> {
+/**
+ * Forecast weather for a resort's mid band, local dates [fromDate, toDate].
+ * Our forecast pulls store neither humidity nor sunshine, so forecast days
+ * get the caller's recent ERA5 means for both.
+ */
+export async function loadForecastDays(resort: Resort, fromDate: string, toDate: string, rhPct: number, shortwaveMjM2 = 0): Promise<SnowpackDay[]> {
   const db = getServiceDb();
   const args = {
     p_resort_id: resort.id,
@@ -212,5 +219,6 @@ export async function loadForecastDays(resort: Resort, fromDate: string, toDate:
     timeZone: resort.timezone,
     rhPct,
     pressureHpa: standardPressureHpa(resort.elevation_mid_m),
+    shortwaveMjM2,
   });
 }
