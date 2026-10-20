@@ -1931,6 +1931,44 @@ to re-read the original primer to know what's accounted for.
   for the old name afterward. Clean typecheck, clean build, all existing
   tests still passing (no test asserted the old name as a string).
 
+- **2026-10-20: natural base-depth model, first build.** Nick: "Go on
+  natural base depth modeling." Built from the plan doc ("Natural snow
+  base model: plan"), taking its recommended answer on each open decision:
+  SNOW-17-style accumulation and melt plus sublimation and settling, with
+  no radiation term yet; mid-mountain only; resorts with no station shown
+  with an "uncalibrated" label; history re-pull already done (2026-10-18).
+  - `lib/snowpack/model.ts`: a daily step. Rain/snow split between -1 and
+    3 °C, Hedstrom-Pomeroy new-snow density, seasonal melt factor on
+    sine-curve degree-days, SNOW-17 rain-on-snow melt and cold content,
+    bulk sublimation, 5% liquid holding, and Anderson compaction in four
+    6-hour sub-steps.
+  - `lib/snowpack/fit.ts`: two-stage bounded Nelder-Mead (SCF, melt
+    factors and sublimation fitted to SWE; compaction to depth). The bar
+    is checked on held-out winters: 5 folds, so no winter is scored with
+    numbers fitted on it. The plan said leave-one-winter-out, which needs
+    about six times the compute. The plan's bar is held-out daily SWE
+    NSE ≥ 0.8, median peak-SWE error ≤ 15% and melt-out ≤ 7 days. NSE is
+    the standard one; the plan's "vs the average for that date" wording
+    is reported separately as climatology skill. Station readings count
+    only from Nov 1 to Jun 30. A depth-only stake (Stowe) is judged on
+    depth NSE ≥ 0.8.
+  - Data: ERA5 daily weather from `reanalysis_daily` at mid elevation,
+    moved to the station's elevation with a 6.5 °C/km lapse rate when
+    NRCS reports one. The historical run's new Step 0 saves this season's
+    ERA5 weather for every active resort, not only SNOTEL ones. Days
+    after ERA5's last day come from the forecast models
+    (`snowpack_forecast_hours`: latest run per model per hour, surface
+    temperature, models averaged). Forecast days use the resort's
+    last-30-day ERA5 humidity, because forecast pulls don't store
+    humidity; adding it would have pushed ingest past the free call limit.
+  - Storage (migration 0016, applied): `snowpack_params` (fit and scores
+    per resort) and `snowpack_daily` (this season, modeled and projected,
+    public read).
+  - Jobs: "Snowpack fit" GitHub workflow (weekly, Mondays 15:00 UTC, and
+    on demand) and `/api/cron/snowpack` every 6 h at :50. A resort with a
+    station but no passing fit gets no estimate.
+  - Not built yet: the site display. Mockups come first.
+
 - **2026-10-18 (late): hour-by-hour rain/snow split.** Nick: "why can't we
   split days into mix of snow and rain? change over is important." A day
   used to get one precip-weighted temperature and be all rain or all snow.

@@ -10,6 +10,7 @@
     { "path": "/api/cron/ingest-fares", "schedule": "0 11 * * *" },
     { "path": "/api/cron/backtest", "schedule": "0 12 * * *" },
     { "path": "/api/cron/calibration-recommend", "schedule": "0 13 * * 1" },
-    { "path": "/api/cron/enso", "schedule": "0 14 15 * *" }
+    { "path": "/api/cron/enso", "schedule": "0 14 15 * *" },
+    { "path": "/api/cron/snowpack", "schedule": "50 */6 * * *" }
   ]
 }

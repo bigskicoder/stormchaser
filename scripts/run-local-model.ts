@@ -51,6 +51,7 @@ import { RECONCILIATION_BACKTEST_MODELS } from "../src/lib/backtest/reconciliati
 import { mapWithConcurrency } from "../src/lib/utils/concurrency";
 import { WeightedRateLimiter, openMeteoCallWeight } from "../src/lib/utils/weighted-rate-limiter";
 import { waterYearChunksNewestFirst } from "../src/lib/backtest/water-year-chunks";
+import { saveReanalysisWeather } from "../src/lib/backtest/reanalysis-weather";
 import { refreshEnsoOni, resetEnsoPhaseLookupCache } from "../src/lib/enso/oni";
 import type { ModelVersion, Resort } from "../src/lib/db/types";
 
@@ -239,6 +240,36 @@ async function main() {
     console.log(`Downloaded NOAA's El Nino / La Nina index (${oni.rows} seasons).\n`);
   } catch (err) {
     console.log(`Couldn't download NOAA's El Nino / La Nina index (${(err as Error).message}); continuing without it.\n`);
+  }
+
+  // Step 0: this season's ERA5 weather for every active resort, for the
+  // natural snowpack model (lib/snowpack/). Small: one request per resort
+  // covering Oct 1 to 5 days ago. Runs first so it isn't starved by the
+  // long history load hitting the daily limit.
+  {
+    let all = db.from("resorts").select("*").eq("active", true).order("slug");
+    if (opts.resortSlug) all = all.eq("slug", opts.resortSlug);
+    const { data: allData, error: allError } = await all;
+    if (allError) throw allError;
+    const today = new Date();
+    const wy = today.getUTCMonth() >= 9 ? today.getUTCFullYear() + 1 : today.getUTCFullYear();
+    const start = `${wy - 1}-09-30`;
+    const end = new Date(today.getTime() - 5 * 86_400_000).toISOString().slice(0, 10);
+    if (end > start) {
+      const seasonDays = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86_400_000) + 1;
+      const weight = openMeteoCallWeight(seasonDays, HISTORICAL_WEATHER_HOURLY_VARIABLES.length);
+      console.log(`Step 0: this season's weather (${start}..${end}) for ${(allData ?? []).length} resorts, for the snowpack model...`);
+      let saved = 0;
+      const failures: string[] = [];
+      await mapWithConcurrency((allData ?? []) as Resort[], opts.parallel, async (resort) => {
+        await limiter.acquire(weight);
+        const r = await saveReanalysisWeather(resort, start, end);
+        saved += r.days;
+        if (r.errors.length) failures.push(`${resort.slug}: ${r.errors.join("; ").slice(0, 200)}`);
+      });
+      console.log(`  Done: ${saved} resort-days saved, ${failures.length} resorts with errors.\n`);
+      for (const f of failures) console.log(`    ${f}`);
+    }
   }
 
   try {

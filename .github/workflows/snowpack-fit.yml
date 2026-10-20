@@ -1,0 +1,52 @@
+# Fits the natural snowpack model (lib/snowpack/) to each resort's
+# reference station and saves the parameters and held-out scores to
+# snowpack_params. Weekly, so new winters of ERA5 history from the
+# historical model run are picked up as they load, and on demand from the
+# Actions tab. Reads only the database and NRCS's station list; makes no
+# Open-Meteo calls.
+#
+# Needs the same repository secret as the historical run: SUPABASE_SERVICE_ROLE_KEY.
+
+name: Snowpack fit
+
+on:
+  schedule:
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      args:
+        description: "Extra flags for snowpack-fit.ts, e.g. --resort=alta"
+        required: false
+        default: ""
+
+concurrency:
+  group: snowpack-fit
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://hfvcwrzjekzrpyerefao.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Fit each resort
+        env:
+          # Passed through env, not interpolated into the script, so input text can't become shell code.
+          EXTRA_ARGS: ${{ inputs.args }}
+        run: |
+          # shellcheck disable=SC2086 # word-split the flags on purpose
+          npx tsx scripts/snowpack-fit.ts $EXTRA_ARGS
