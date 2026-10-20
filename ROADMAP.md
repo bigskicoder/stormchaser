@@ -1976,6 +1976,12 @@ to re-read the original primer to know what's accounted for.
     freezing, with Douville (1995) snow albedo. Taken without waiting for
     Nick (his card's recommended option): it uses data already stored and
     changes nothing for uncalibrated resorts (srf defaults to 0).
+    Result: still 14 of 29; the fit set srf to 0 at every late-melt
+    resort. Signed errors then showed the model melts out early (1-11
+    days) everywhere, and peak misses are winter-to-winter scatter around
+    a near-zero median bias (ERA5's grid missing storms, not a parameter).
+    So the SWE fit now also scores melt-out timing (MELT_OUT_TIMING_WEIGHT
+    in fit.ts).
 
 - **2026-10-18 (late): hour-by-hour rain/snow split.** Nick: "why can't we
   split days into mix of snow and rain? change over is important." A day

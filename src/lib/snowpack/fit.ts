@@ -186,6 +186,45 @@ function sse(pairs: Paired[], field: "swe" | "depth"): number {
   return s;
 }
 
+/** First date after the peak at or under the melt-out SWE, or null if it never melts out. */
+function meltOutDate(values: Array<[string, number]>): string | null {
+  let peakIdx = 0;
+  values.forEach(([, v], i) => {
+    if (v > values[peakIdx]![1]) peakIdx = i;
+  });
+  for (let i = peakIdx; i < values.length; i++) if (values[i]![1] <= MELT_OUT_SWE_MM) return values[i]![0];
+  return null;
+}
+
+/** One winter's melt-out, model minus station, days; null when either never melts out in the scored days. */
+function winterMeltOutBiasDays(rows: Paired[]): number | null {
+  const withObs = rows.filter((x) => x.obsSwe != null);
+  const obsOut = meltOutDate(withObs.map((x) => [x.date, x.obsSwe!]));
+  const modelOut = meltOutDate(rows.map((x) => [x.date, x.modelSwe]));
+  return obsOut && modelOut ? (new Date(modelOut).getTime() - new Date(obsOut).getTime()) / 86_400_000 : null;
+}
+
+/**
+ * How much the SWE fit cares about melt-out timing. Daily SWE error is
+ * dominated by the deep midwinter pack, so on its own the fit traded away
+ * the last weeks of spring: the second full fit (2026-10-20) melted out
+ * early at all 29 resorts. The SWE error is multiplied by
+ * 1 + weight * mean((melt-out error / bar)^2), so a fit missing melt-out by
+ * the bar's 7 days on average pays 50% more.
+ */
+export const MELT_OUT_TIMING_WEIGHT = 0.5;
+
+function meltOutTimingFactor(pairs: Paired[]): number {
+  const byWinter = new Map<number, Paired[]>();
+  for (const x of pairs) byWinter.set(x.waterYear, [...(byWinter.get(x.waterYear) ?? []), x]);
+  const sq: number[] = [];
+  for (const rows of byWinter.values()) {
+    const b = winterMeltOutBiasDays(rows);
+    if (b != null) sq.push((b / SNOWPACK_BAR.maxMeltOutErrorDays) ** 2);
+  }
+  return sq.length ? 1 + (MELT_OUT_TIMING_WEIGHT * sq.reduce((a, c) => a + c, 0)) / sq.length : 1;
+}
+
 function mmdd(date: string): string {
   return date.slice(5);
 }
@@ -231,17 +270,8 @@ export function scoreSnowpack(pairs: Paired[], climatologyFrom: Paired[] = pairs
     const modelPeak = Math.max(...rows.map((x) => x.modelSwe));
     peakBiases.push(((modelPeak - obsPeak) / obsPeak) * 100);
 
-    const meltOut = (values: Array<[string, number]>) => {
-      let peakIdx = 0;
-      values.forEach(([, v], i) => {
-        if (v > values[peakIdx]![1]) peakIdx = i;
-      });
-      for (let i = peakIdx; i < values.length; i++) if (values[i]![1] <= MELT_OUT_SWE_MM) return values[i]![0];
-      return null;
-    };
-    const obsOut = meltOut(withObs.map((x) => [x.date, x.obsSwe!]));
-    const modelOut = meltOut(rows.map((x) => [x.date, x.modelSwe]));
-    if (obsOut && modelOut) meltOutBiases.push((new Date(modelOut).getTime() - new Date(obsOut).getTime()) / 86_400_000);
+    const bias = winterMeltOutBiasDays(rows);
+    if (bias != null) meltOutBiases.push(bias);
   }
 
   const depthErr = depth.length ? Math.sqrt(depth.reduce((s, x) => s + (x.modelDepth - x.obsDepth!) ** 2, 0) / depth.length) : null;
@@ -271,7 +301,8 @@ export function fitSnowpackParams(winters: SnowpackWinter[], start: SnowpackPara
       (q) => {
         // The melt factor peaks in June, never below its December value.
         const penalty = q.mfMin > q.mfMax ? 1e12 * (q.mfMin - q.mfMax) : 0;
-        return sse(simulate(winters, q, true), "swe") + penalty;
+        const pairs = simulate(winters, q, true);
+        return sse(pairs, "swe") * meltOutTimingFactor(pairs) + penalty;
       },
       p,
       STAGE1_KEYS,
