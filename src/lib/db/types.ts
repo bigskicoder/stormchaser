@@ -231,7 +231,7 @@ export interface CalibrationRecommendation {
   recommended_multiplier: number;
   /** null = the resort's base multiplier; otherwise the El Nino / La Nina one (ROADMAP Phase B.6). */
   enso_phase: EnsoAdjustablePhase | null;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "superseded";
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;

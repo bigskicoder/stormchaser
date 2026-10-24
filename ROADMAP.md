@@ -168,6 +168,7 @@ at `/admin/calibration`. 8 unit tests in `tests/calibration/`.
   opposite the mean error, scaled to the mean predicted amount, clamped
   to ±5% per update, and the multiplier itself is hard-bounded to
   [0.7, 1.4] regardless of how large an error would otherwise imply.
+  (Changed 2026-10-24: full step, bounds [0.5, 2.0]; see that entry.)
 - **Recommend-only, as decided**: nothing writes to `resorts.slr_calibration_multiplier`
   automatically. Every proposal lands in `calibration_recommendations` with
   `status='pending'` and sits in `/admin/calibration` until a logged-in
@@ -1930,6 +1931,24 @@ to re-read the original primer to know what's accounted for.
   Zero logic changes — pure content/copy, confirmed via a full grep sweep
   for the old name afterward. Clean typecheck, clean build, all existing
   tests still passing (no test asserted the old name as a string).
+
+- **2026-10-24: calibration can close big gaps.** Nick asked to
+  "recalibrate the large discrepancies" (Kirkwood's real forecasts ran
+  1.86x its station, Northstar 1.50x, Stevens Pass 1.38x). The station
+  matches checked out (Kirkwood's Carson Pass is 130 m below mid and ~8 km
+  away, and the base-depth fit needs almost no precipitation correction
+  there). The calibration logic was the cause:
+  - Skip-while-pending froze all 32 base recommendations at their
+    2026-10-18 values (366 samples, before the 40-year history loaded),
+    since none had been reviewed. A run now inserts a fresh one and marks
+    the older pending one `superseded` (migration 0017).
+  - The 5% step cap and [0.7, 1.4] bounds couldn't reach Kirkwood's ~0.54.
+    Nick chose "Full step": one approval applies the whole correction,
+    bounds [0.5, 2.0]. Still recommend-only; every change needs approval.
+  - Not changed, waiting on Nick: the base multiplier pools the 40-year
+    ERA5 backtest with 5 years of real forecasts (about 3:1 by weight),
+    and they disagree at some resorts (Northstar ERA5 0.99x vs forecasts
+    1.50x; Heavenly the reverse). Proposed: base it on real forecasts only.
 
 - **2026-10-20: natural base-depth model, first build.** Nick: "Go on
   natural base depth modeling." Built from the plan doc ("Natural snow

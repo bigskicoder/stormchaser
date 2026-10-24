@@ -38,14 +38,17 @@ describe("computeCalibrationRecommendation", () => {
     expect(result.recommendedMultiplier).toBeCloseTo(1.0, 5);
   });
 
-  it("never steps by more than CALIBRATION_MAX_STEP_FRACTION per call, even for a huge error", () => {
-    // Error equal to the full predicted amount (100% relative error) should
-    // still only move the multiplier by the configured max step.
+  it("closes a big gap in one step (full step, Nick 2026-10-24)", () => {
+    // Kirkwood-like: forecasts 1.86x the station, so the multiplier should land near 1/1.86.
+    const result = computeCalibrationRecommendation(1.0, samples(20, 10, 10 - 10 / 1.86));
+    expect(result.recommendedMultiplier).toBeCloseTo(1 / 1.86, 5);
+    expect(Math.abs(result.recommendedMultiplier - 1)).toBeLessThanOrEqual(CALIBRATION_MAX_STEP_FRACTION);
+  });
+
+  it("stops at the bounds for an error too big to correct", () => {
+    // Predicted 10in, observed 0: the raw correction is to zero.
     const result = computeCalibrationRecommendation(1.0, samples(20, 10, 10));
-    expect(result.eligible).toBe(true);
-    const actualStepFraction = Math.abs(result.recommendedMultiplier - 1.0) / 1.0;
-    expect(actualStepFraction).toBeCloseTo(CALIBRATION_MAX_STEP_FRACTION, 5);
-    expect(result.recommendedMultiplier).toBeLessThan(1.0);
+    expect(result.recommendedMultiplier).toBe(CALIBRATION_MULTIPLIER_BOUNDS.min);
   });
 
   it("never recommends outside CALIBRATION_MULTIPLIER_BOUNDS even starting near the edge", () => {

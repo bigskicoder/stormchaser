@@ -161,14 +161,17 @@ export const CALIBRATION_MIN_SAMPLE_SIZE = 15;
 /** Rolling lookback window (days) of accuracy_log history considered per recommendation. */
 export const CALIBRATION_LOOKBACK_DAYS = 120;
 
-/** Max fractional change to the multiplier per recommendation (e.g. 0.05 = ±5%). */
-export const CALIBRATION_MAX_STEP_FRACTION = 0.05;
+/**
+ * Max fractional change to the multiplier per recommendation. Was 0.05
+ * (2026-10-18). Nick chose "Full step" on 2026-10-24 after Kirkwood's
+ * forecasts ran 1.86x its station: one approval now applies the whole
+ * correction, within the bounds below. Admin approval is the safeguard.
+ */
+export const CALIBRATION_MAX_STEP_FRACTION = 1;
 
-/** Hard bounds on resorts.slr_calibration_multiplier — a recommendation is clamped into this range, never outside it. */
-export const CALIBRATION_MULTIPLIER_BOUNDS = { min: 0.7, max: 1.4 } as const;
+/** Hard bounds on resorts.slr_calibration_multiplier; a recommendation is clamped into this range. Was 0.7-1.4; widened with the full step (Kirkwood needs about 0.54). */
+export const CALIBRATION_MULTIPLIER_BOUNDS = { min: 0.5, max: 2.0 } as const;
 
-/** Skip generating a new recommendation for a resort while one is still pending review, to avoid pileup. */
-export const CALIBRATION_SKIP_IF_PENDING_EXISTS = true;
 
 /**
  * accuracy_log sources pooled alongside live 'powder_alert' data when

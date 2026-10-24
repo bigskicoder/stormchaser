@@ -26,7 +26,7 @@ export default async function AdminCalibrationPage() {
       </h2>
       <p style={{ color: "var(--text-muted)" }}>
         ROADMAP Phase B — recommend-only. Generated weekly from accuracy_log history (minimum 15 samples per resort),
-        bounded to &plusmn;5% per update. Nothing here is applied until approved below; approving creates and
+        each one applies its full correction in one step, within 0.5bounded to &plusmn;5% per update. Nothingtimes;bounded to &plusmn;5% per update. Nothingndash;2bounded to &plusmn;5% per update. Nothingtimes;. A new run replaces a recommendation still waiting here. Nothing here is applied until approved below; approving creates and
         activates a new entry on the <a href="/admin/model-versions">model versions</a> page with this one
         resort&rsquo;s multiplier updated — the previous version stays saved, so the change can be rolled back from
         there. Samples are weighted by age (half weight at 10 years old). A row marked El Niño or La Niña is a

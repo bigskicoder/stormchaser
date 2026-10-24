@@ -23,7 +23,6 @@ import {
   CALIBRATION_BACKTEST_SOURCES,
   CALIBRATION_LOOKBACK_DAYS,
   CALIBRATION_RECENCY_HALF_LIFE_YEARS,
-  CALIBRATION_SKIP_IF_PENDING_EXISTS,
   ENSO_MIN_PHASE_SAMPLES,
   ENSO_SIGNIFICANCE_T,
 } from "@/lib/config/constants";
@@ -68,13 +67,18 @@ async function fetchAccuracyRows(resortId: string, sources: readonly string[], s
   return rows;
 }
 
-async function hasPending(resortId: string, phase: EnsoAdjustablePhase | null): Promise<boolean> {
+/**
+ * Marks a slot's older pending recommendations superseded, so admin only
+ * shows the latest. This replaced "skip while one is pending", which froze
+ * every base recommendation at its 2026-10-18 value (366 samples, before
+ * the 40-year history loaded) because none had been reviewed.
+ */
+async function supersedePending(resortId: string, phase: EnsoAdjustablePhase | null, keepId: string): Promise<void> {
   const db = getServiceDb();
-  let query = db.from("calibration_recommendations").select("id").eq("resort_id", resortId).eq("status", "pending").limit(1);
+  let query = db.from("calibration_recommendations").update({ status: "superseded" }).eq("resort_id", resortId).eq("status", "pending").neq("id", keepId);
   query = phase ? query.eq("enso_phase", phase) : query.is("enso_phase", null);
-  const { data, error } = await query;
+  const { error } = await query;
   if (error) throw error;
-  return (data ?? []).length > 0;
 }
 
 export async function generateCalibrationRecommendations(now: Date = new Date()): Promise<{
@@ -143,24 +147,25 @@ export async function generateCalibrationRecommendations(now: Date = new Date())
       }
 
       for (const slot of slots) {
-        if (CALIBRATION_SKIP_IF_PENDING_EXISTS && (await hasPending(resort.id, slot.phase))) {
-          skipped += 1;
-          continue;
-        }
         const result = computeCalibrationRecommendation(slot.current, slot.samples);
         if (!result.eligible) {
           skipped += 1;
           continue;
         }
-        const { error: insertError } = await db.from("calibration_recommendations").insert({
-          resort_id: resort.id,
-          enso_phase: slot.phase,
-          sample_count: result.sampleCount,
-          mean_signed_error_in: result.meanSignedErrorIn,
-          current_multiplier: slot.current,
-          recommended_multiplier: result.recommendedMultiplier,
-        });
+        const { data: inserted, error: insertError } = await db
+          .from("calibration_recommendations")
+          .insert({
+            resort_id: resort.id,
+            enso_phase: slot.phase,
+            sample_count: result.sampleCount,
+            mean_signed_error_in: result.meanSignedErrorIn,
+            current_multiplier: slot.current,
+            recommended_multiplier: result.recommendedMultiplier,
+          })
+          .select("id")
+          .single();
         if (insertError) throw insertError;
+        await supersedePending(resort.id, slot.phase, (inserted as { id: string }).id);
         proposed += 1;
       }
     } catch (err) {
