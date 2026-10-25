@@ -190,6 +190,18 @@ export const CALIBRATION_MULTIPLIER_BOUNDS = { min: 0.5, max: 2.0 } as const;
 export const CALIBRATION_BACKTEST_SOURCES = ["slr_reanalysis_backtest", "reconciliation_forecast_backtest"] as const;
 
 /**
+ * Sources that set a resort's base (year-round) multiplier: real forecasts
+ * only (live alerts and the 5-year forecast backtest). Nick chose this on
+ * 2026-10-25: the multiplier corrects the live forecasts, and the 40-year
+ * ERA5 backtest disagrees with them at some resorts (Heavenly ERA5 1.40x
+ * vs forecasts 0.96x; Northstar 0.99x vs 1.50x), because the forecast
+ * models' precipitation bias isn't ERA5's. ERA5 still drives the El Nino /
+ * La Nina tests and phase multipliers, which need the long record. Falls
+ * back to every source when a resort has too few forecast samples.
+ */
+export const CALIBRATION_BASE_SOURCES = ["powder_alert", "reconciliation_forecast_backtest"] as const;
+
+/**
  * Age at which a calibration sample counts half as much as one from today
  * (weight = 0.5 ^ (age in years / half-life)). Requested directly ("are
  * more recent years weighted more?"): without it, a full 40-year backtest

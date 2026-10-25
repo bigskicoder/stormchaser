@@ -1945,10 +1945,11 @@ to re-read the original primer to know what's accounted for.
   - The 5% step cap and [0.7, 1.4] bounds couldn't reach Kirkwood's ~0.54.
     Nick chose "Full step": one approval applies the whole correction,
     bounds [0.5, 2.0]. Still recommend-only; every change needs approval.
-  - Not changed, waiting on Nick: the base multiplier pools the 40-year
-    ERA5 backtest with 5 years of real forecasts (about 3:1 by weight),
-    and they disagree at some resorts (Northstar ERA5 0.99x vs forecasts
-    1.50x; Heavenly the reverse). Proposed: base it on real forecasts only.
+  - The base multiplier pooled the 40-year ERA5 backtest with 5 years of
+    real forecasts (about 3:1 by weight), and they disagree at some
+    resorts (Northstar ERA5 0.99x vs forecasts 1.50x; Heavenly the
+    reverse). Nick chose (2026-10-25) to base it on real forecasts only
+    (CALIBRATION_BASE_SOURCES); ERA5 still drives the ENSO phase tests.
 
 - **2026-10-20: natural base-depth model, first build.** Nick: "Go on
   natural base depth modeling." Built from the plan doc ("Natural snow

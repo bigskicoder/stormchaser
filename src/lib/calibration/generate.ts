@@ -21,7 +21,9 @@
 import { getServiceDb } from "@/lib/db/client";
 import {
   CALIBRATION_BACKTEST_SOURCES,
+  CALIBRATION_BASE_SOURCES,
   CALIBRATION_LOOKBACK_DAYS,
+  CALIBRATION_MIN_SAMPLE_SIZE,
   CALIBRATION_RECENCY_HALF_LIFE_YEARS,
   ENSO_MIN_PHASE_SAMPLES,
   ENSO_SIGNIFICANCE_T,
@@ -36,9 +38,10 @@ const MS_PER_YEAR = 365.25 * 86_400_000;
 
 interface TaggedSample extends AccuracySample {
   phase: EnsoPhase | null;
+  source: string;
 }
 
-type AccuracyRow = { predicted_snowfall_in: number; accuracy_error_in: number; target_date: string };
+type AccuracyRow = { predicted_snowfall_in: number; accuracy_error_in: number; target_date: string; source: string };
 
 /**
  * Pages through accuracy_log. Supabase returns at most 1,000 rows per
@@ -51,7 +54,7 @@ async function fetchAccuracyRows(resortId: string, sources: readonly string[], s
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = db
       .from("accuracy_log")
-      .select("predicted_snowfall_in, accuracy_error_in, target_date")
+      .select("predicted_snowfall_in, accuracy_error_in, target_date, source")
       .eq("resort_id", resortId)
       .in("source", sources as string[])
       .not("accuracy_error_in", "is", null)
@@ -118,18 +121,22 @@ export async function generateCalibrationRecommendations(now: Date = new Date())
         errorIn: r.accuracy_error_in,
         weight: recencyWeight((now.getTime() - new Date(`${r.target_date}T00:00:00Z`).getTime()) / MS_PER_YEAR, CALIBRATION_RECENCY_HALF_LIFE_YEARS),
         phase: ensoLookup.phaseForDate(r.target_date),
+        source: r.source,
       }));
 
       const phaseMultipliers = activeVersion?.resort_enso_slr_multipliers?.[resort.id] ?? {};
       const neutralErrors = samples.filter((s) => s.phase === "neutral").map((s) => s.errorIn);
 
-      // Base multiplier: every sample not already owned by a phase multiplier.
+      // Base multiplier: real-forecast samples not already owned by a phase
+      // multiplier (every source when too few; see CALIBRATION_BASE_SOURCES).
       const ownedPhases = new Set(ENSO_ADJUSTABLE_PHASES.filter((p) => phaseMultipliers[p] != null));
+      const unowned = samples.filter((s) => !(s.phase && ownedPhases.has(s.phase as EnsoAdjustablePhase)));
+      const fromForecasts = unowned.filter((s) => (CALIBRATION_BASE_SOURCES as readonly string[]).includes(s.source));
       const slots: Array<{ phase: EnsoAdjustablePhase | null; current: number; samples: TaggedSample[] }> = [
         {
           phase: null,
           current: resort.slr_calibration_multiplier,
-          samples: samples.filter((s) => !(s.phase && ownedPhases.has(s.phase as EnsoAdjustablePhase))),
+          samples: fromForecasts.length >= CALIBRATION_MIN_SAMPLE_SIZE ? fromForecasts : unowned,
         },
       ];
       for (const phase of ENSO_ADJUSTABLE_PHASES) {
