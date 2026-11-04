@@ -1932,6 +1932,18 @@ to re-read the original primer to know what's accounted for.
   for the old name afterward. Clean typecheck, clean build, all existing
   tests still passing (no test asserted the old name as a string).
 
+- **2026-11-04: natural base on the site (design D1).** Nick picked D1,
+  the snow-stake gauge, from the three mockups. Resort pages show it in
+  the side column (today, change over 7 days, the last projected day, the
+  station's measured depth, water in the pack), labeled Calibrated or
+  Uncalibrated; the leaderboard gets a Base column ("est." when
+  uncalibrated). Resorts whose fit misses the accuracy bar show nothing,
+  the plan's rule (the "show labeled" alternative is still Nick's call).
+  Same day, Nick told Claude to approve all pending calibrations: they
+  went live as one model version (scripts/approve-pending-calibrations.ts,
+  "Approve pending calibrations" workflow), rolled back by activating its
+  parent at /admin/model-versions.
+
 - **2026-10-24: calibration can close big gaps.** Nick asked to
   "recalibrate the large discrepancies" (Kirkwood's real forecasts ran
   1.86x its station, Northstar 1.50x, Stevens Pass 1.38x). The station
