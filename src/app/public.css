@@ -652,7 +652,7 @@
 .ps-board-head,
 .ps-board-row {
   display: grid;
-  grid-template-columns: 40px minmax(160px, 1.6fr) minmax(150px, 1.2fr) minmax(150px, 1.1fr) 84px 72px 110px 80px 52px;
+  grid-template-columns: 40px minmax(160px, 1.6fr) minmax(150px, 1.2fr) minmax(150px, 1.1fr) 84px 72px 110px 80px 64px 52px;
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
@@ -1345,4 +1345,121 @@
   .ps-td-trail-head h1 {
     font-size: 30px;
   }
+}
+
+/* Natural base, design D1 (snow-stake gauge). */
+.ps-base-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.ps-base-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 10px;
+}
+.ps-base-badge.good {
+  color: #14532d;
+  background: var(--high-wash);
+}
+.ps-base-badge.rough {
+  color: #7a5200;
+  background: var(--medium-wash);
+}
+.ps-base-body {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+.ps-stake {
+  position: relative;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 220px;
+}
+.ps-stake .stake,
+.ps-stake .proj,
+.ps-stake .now {
+  position: absolute;
+  left: 22px;
+  width: 20px;
+  bottom: 0;
+}
+.ps-stake .stake {
+  height: 100%;
+  background: var(--border-subtle);
+  border-radius: 10px;
+}
+.ps-stake .proj {
+  background: #c9def9;
+  border-top: 2px dashed #3b7be8;
+  border-radius: 0 0 10px 10px;
+}
+.ps-stake .now {
+  background: var(--accent);
+  border-radius: 0 0 10px 10px;
+}
+.ps-stake .tick {
+  position: absolute;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ps-stake .tick.top {
+  top: 0;
+  left: 46px;
+}
+.ps-stake .tick.zero {
+  bottom: 0;
+  left: 46px;
+}
+.ps-base-figs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  min-width: 0;
+}
+.ps-base-figs > div:first-child {
+  display: flex;
+  flex-direction: column;
+}
+.ps-base-big {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ps-base-figs dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.ps-base-figs dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ps-base-figs dt {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ps-base-figs dd {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ps-base-figs dd.accent {
+  color: var(--accent);
+}
+.ps-base-note {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
 }

@@ -26,6 +26,16 @@ function fmtIn(v: number | null): string {
   return `${v < 10 && v % 1 !== 0 ? v.toFixed(1) : v.toFixed(0)}"`;
 }
 
+/** Natural base today; "est." marks a resort with no station to check the model against. */
+function BaseCell({ base }: { base: LeaderboardRow["naturalBase"] }) {
+  if (!base) return <span className="ps-meta">–</span>;
+  return (
+    <span title={base.calibrated ? "Modeled natural base, checked against the nearby snow station" : "Modeled natural base, no nearby snow station to check it against"}>
+      {Math.round(base.depthIn)}&Prime;{!base.calibrated && <span className="ps-meta"> est.</span>}
+    </span>
+  );
+}
+
 function ConfidencePill({ label }: { label: string | null | undefined }) {
   if (!label) return <span className="ps-dash">–</span>;
   return <span className={`ps-conf ${label}`}>{label[0]!.toUpperCase() + label.slice(1)}</span>;
@@ -238,6 +248,7 @@ export function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
               <span>Best day</span>
               <span>Confidence</span>
               <span className="num">Past 7 days</span>
+              <span className="num">Base</span>
               <span />
             </li>
             {visible.map(({ row, summary }) => {
@@ -272,6 +283,9 @@ export function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
                     <ConfidencePill label={summary.bestDay?.confidence} />
                   </span>
                   <span className="num desk ps-meta">{fmtIn(row.pastWeekIn)}</span>
+                  <span className="num desk">
+                    <BaseCell base={row.naturalBase} />
+                  </span>
                   <div className="facts">
                     <span>
                       <strong>{fmtIn(summary.totalIn)}</strong> {WINDOW_LABEL[windowDays]}
@@ -279,6 +293,11 @@ export function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
                     <span>Best {bestDayText(summary)}</span>
                     <ConfidencePill label={summary.bestDay?.confidence} />
                     <span className="ps-meta">Past 7 days {fmtIn(row.pastWeekIn)}</span>
+                    {row.naturalBase && (
+                      <span className="ps-meta">
+                        Base <BaseCell base={row.naturalBase} />
+                      </span>
+                    )}
                   </div>
                   <Link href={`/resorts/${row.slug}`} className="ps-open" aria-label={`${row.name} full forecast`}>
                     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

@@ -9,6 +9,7 @@
 import { getAnonDb } from "@/lib/db/client";
 import type { Resort, SnotelActual, SnowScore } from "@/lib/db/types";
 import { buildLeaderboardRow, type LeaderboardRow } from "@/lib/public/leaderboard";
+import { getNaturalBaseByResort } from "@/lib/public/natural-base";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { addCalendarDays, localTodayIso } from "@/lib/utils/timezone";
 
@@ -155,11 +156,15 @@ export async function getLeaderboardRows(): Promise<LeaderboardRow[]> {
     actualsByResort.set(a.resort_id, arr);
   }
 
+  // Every resort's local today is UTC's today or the day before.
+  const baseByResort = await getNaturalBaseByResort([addCalendarDays(utcToday, -1), utcToday]);
+
   return mapWithConcurrency(list, 8, async (resort) => {
     const todayIso = localTodayIso(resort.timezone);
     const since = addCalendarDays(todayIso, -PAST_WEEK_WINDOW_DAYS);
     const scores = await getUpcomingScoresForResort(resort.id, resort.timezone);
     const pastWeek = (actualsByResort.get(resort.id) ?? []).filter((a) => a.date >= since && a.date < todayIso);
-    return buildLeaderboardRow({ resort, todayIso, scores, pastWeek });
+    const naturalBase = baseByResort.get(resort.id)?.get(todayIso) ?? null;
+    return buildLeaderboardRow({ resort, todayIso, scores, pastWeek, naturalBase });
   });
 }

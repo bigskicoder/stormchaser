@@ -93,6 +93,8 @@ export interface LeaderboardRow {
   days: LeaderboardDay[];
   /** Observed snowfall over the past 7 days, inches; null when the resort has no station or no readings. */
   pastWeekIn: number | null;
+  /** Modeled natural base today, inches (lib/public/natural-base.ts); null when the model has none for this resort. */
+  naturalBase: { depthIn: number; calibrated: boolean } | null;
 }
 
 export interface WindowSummary {
@@ -122,6 +124,7 @@ export function buildLeaderboardRow(params: {
   /** Latest primary score per target_date (getUpcomingScoresForResort's output). */
   scores: SnowScore[];
   pastWeek: Pick<SnotelActual, "date" | "observed_depth_change_in">[];
+  naturalBase?: { depthIn: number; calibrated: boolean } | null;
 }): LeaderboardRow {
   const { resort, todayIso, scores, pastWeek } = params;
   const byDate = new Map(scores.map((s) => [s.target_date, s]));
@@ -158,6 +161,7 @@ export function buildLeaderboardRow(params: {
     lng: resort.lng,
     days,
     pastWeekIn,
+    naturalBase: params.naturalBase ?? null,
   };
 }
 

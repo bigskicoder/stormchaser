@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConditionsStrip } from "@/components/conditions-strip";
+import { NaturalBaseGauge } from "@/components/natural-base-gauge";
 import { ResortRadar } from "@/components/resort-radar";
 import { ScoreTable } from "@/components/score-table";
 import { SiteTopbar } from "@/components/site-topbar";
@@ -10,6 +11,7 @@ import { CONFIDENCE_WEIGHT_BY_LABEL } from "@/lib/config/constants";
 import { getAnonDb } from "@/lib/db/client";
 import type { SnowScore } from "@/lib/db/types";
 import { POWDER_DAY_IN, WIND_HOLD_LIKELY, buildLeaderboardRow, changeoverText, mixedPrecip, rainExpected, summarizeWindow, weekdayLabel } from "@/lib/public/leaderboard";
+import { getNaturalBase } from "@/lib/public/natural-base";
 import { getPastWeekSnowfall, getResortBySlug, getUpcomingScoresForResort } from "@/lib/public/resort-scores";
 import { buildSnowfallTimeline } from "@/lib/public/snowfall-timeline";
 import { kmhToMph } from "@/lib/utils/units";
@@ -55,12 +57,13 @@ export default async function ResortPage({ params }: { params: Promise<{ slug: s
   const resort = await getResortBySlug(slug);
   if (!resort) notFound();
 
-  const [scores, pastWeek, neighbors] = await Promise.all([
+  const todayIso = localTodayIso(resort.timezone);
+  const [scores, pastWeek, neighbors, naturalBase] = await Promise.all([
     getUpcomingScoresForResort(resort.id, resort.timezone),
     getPastWeekSnowfall(resort.id, resort.timezone),
     getAnonDb().from("resorts").select("slug, name, lat, lng").eq("active", true),
+    getNaturalBase(resort.id, todayIso, Boolean(resort.snotel_station_triplet)),
   ]);
-  const todayIso = localTodayIso(resort.timezone);
   const snowfallBars = buildSnowfallTimeline({ todayIso, pastWeek, upcoming: scores });
   const row = buildLeaderboardRow({ resort, todayIso, scores, pastWeek: pastWeek.filter((p) => p.date < todayIso) });
   const summary = summarizeWindow(row, 5);
@@ -132,6 +135,7 @@ export default async function ResortPage({ params }: { params: Promise<{ slug: s
                 ))
               )}
             </section>
+            {naturalBase && <NaturalBaseGauge base={naturalBase} />}
             {best && (
               <section className="ps-panel" aria-labelledby="why-h">
                 <h2 id="why-h">Why {summary.score}</h2>
