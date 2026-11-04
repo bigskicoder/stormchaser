@@ -1,0 +1,38 @@
+# Approves every pending calibration recommendation as one new model version
+# (scripts/approve-pending-calibrations.ts). Changes the live forecast, so
+# it runs only by hand, when the owner has said to approve. Undo by
+# activating the parent version at /admin/model-versions.
+
+name: Approve pending calibrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      by:
+        description: "Who approved (recorded on the version)"
+        required: true
+        default: "Nick"
+
+concurrency:
+  group: calibration-recommend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://hfvcwrzjekzrpyerefao.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BY: ${{ inputs.by }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx scripts/approve-pending-calibrations.ts --by="$BY"
