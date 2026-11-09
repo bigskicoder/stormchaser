@@ -1,0 +1,57 @@
+# Moves forecast runs nothing reads any more out of the forecast_pulls table
+# into gzipped files in the private 'forecast-archive' Storage bucket
+# (scripts/archive-forecast-pulls.ts, migration 0018). Rows are deleted only
+# with mode "archive", and only after their file has been uploaded,
+# downloaded again and checked. "dry-run" writes one test file, checks it,
+# removes it and changes nothing.
+#
+# Needs the repository secret SUPABASE_SERVICE_ROLE_KEY.
+
+name: Archive old forecasts
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (test one file, change nothing) or archive (move old runs out and delete them from the table)"
+        type: choice
+        options: [dry-run, archive]
+        default: dry-run
+      days:
+        description: "Most run dates to process this time (oldest first); blank = all"
+        required: false
+        default: ""
+
+concurrency:
+  group: archive-forecast-pulls
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://hfvcwrzjekzrpyerefao.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Run
+        env:
+          MODE: ${{ inputs.mode }}
+          DAYS: ${{ inputs.days }}
+        run: |
+          args=()
+          if [ "$MODE" = "archive" ]; then args+=(--delete); fi
+          if [ -n "$DAYS" ]; then args+=("--days=$DAYS"); fi
+          npx tsx scripts/archive-forecast-pulls.ts "${args[@]}"
