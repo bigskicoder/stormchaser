@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       step:
-        description: "keygen, then store"
+        description: "keygen, then store; check tests the sign-in lookups"
         type: choice
-        options: [keygen, store]
+        options: [keygen, store, check]
         default: keygen
       ciphertext:
         description: "store only: the PIN encrypted to the keygen public key (base64)"

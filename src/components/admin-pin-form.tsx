@@ -21,7 +21,7 @@ export function AdminPinForm() {
         return;
       }
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      setError(body.error ?? "Couldn't sign in.");
+      setError(body.error ?? `Couldn't sign in (error ${res.status}).`);
       setPin("");
     } finally {
       setBusy(false);

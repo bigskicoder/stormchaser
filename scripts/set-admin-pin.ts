@@ -19,7 +19,7 @@
 
 import { constants, generateKeyPairSync, privateDecrypt } from "node:crypto";
 import { getServiceDb } from "../src/lib/db/client";
-import { PIN_BUCKET, PIN_OBJECT, hashPin } from "../src/lib/admin/pin";
+import { PIN_BUCKET, PIN_OBJECT, getPinSecret, hashPin, ipTag, pinLockedOut } from "../src/lib/admin/pin";
 
 const KEY_OBJECT = "pin-key.pem";
 
@@ -61,8 +61,15 @@ async function store(ciphertext: string) {
   console.log("Admin PIN hash stored; one-time key deleted.");
 }
 
+/** Checks the sign-in path's database calls without revealing anything. */
+async function check() {
+  const secret = await getPinSecret();
+  console.log(`Stored PIN found: ${secret ? `yes (${secret.kind})` : "no"}`);
+  console.log(`Lockout check works; test IP locked out: ${await pinLockedOut(ipTag("check"))}`);
+}
+
 const [step, arg] = process.argv.slice(2);
-(step === "keygen" ? keygen() : step === "store" && arg ? store(arg) : Promise.reject(new Error("usage: keygen | store <ciphertext>"))).catch((err) => {
+(step === "keygen" ? keygen() : step === "check" ? check() : step === "store" && arg ? store(arg) : Promise.reject(new Error("usage: keygen | store <ciphertext> | check"))).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

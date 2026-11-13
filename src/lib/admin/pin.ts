@@ -103,12 +103,18 @@ export function ipTag(ip: string): string {
   return `ip:${createHash("sha256").update(`powder-seeker:${ip}`).digest("hex").slice(0, 16)}`;
 }
 
-/** True when this IP, or everyone together, has used up the wrong guesses for the window. */
+/**
+ * True when this IP, or everyone together, has used up the wrong guesses for the window.
+ * errors is jsonb, so the containment filter must be JSON ('["ip:..."]');
+ * supabase-js's .contains() with an array sends a Postgres array literal
+ * ('{ip:...}'), which jsonb rejects; that error made every PIN attempt fail
+ * on 2026-11-13.
+ */
 export async function pinLockedOut(tag: string): Promise<boolean> {
   const db = getServiceDb();
   const since = new Date(Date.now() - PIN_LOCKOUT_MINUTES * 60_000).toISOString();
   const [mine, all] = await Promise.all([
-    db.from("cron_runs").select("id", { count: "exact", head: true }).eq("job", PIN_FAIL_JOB).gte("ran_at", since).contains("errors", [tag]),
+    db.from("cron_runs").select("id", { count: "exact", head: true }).eq("job", PIN_FAIL_JOB).gte("ran_at", since).filter("errors", "cs", JSON.stringify([tag])),
     db.from("cron_runs").select("id", { count: "exact", head: true }).eq("job", PIN_FAIL_JOB).gte("ran_at", since),
   ]);
   if (mine.error) throw mine.error;

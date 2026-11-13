@@ -19,14 +19,21 @@ export async function POST(req: NextRequest) {
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
   const tag = ipTag(ip);
-  if (await pinLockedOut(tag)) {
+  // If the lockout check itself fails (database hiccup), still allow the
+  // attempt: the PIN is checked either way, and a broken check must not
+  // lock the owner out.
+  const lockedOut = await pinLockedOut(tag).catch((err) => {
+    console.error("admin PIN lockout check failed", err);
+    return false;
+  });
+  if (lockedOut) {
     return NextResponse.json({ error: `Too many wrong PINs. Try again in ${PIN_LOCKOUT_MINUTES} minutes.` }, { status: 429 });
   }
 
   const body = (await req.json().catch(() => ({}))) as { pin?: unknown };
   const pin = typeof body.pin === "string" ? body.pin : "";
   if (!pin || !pinMatches(secret, pin)) {
-    await recordPinFailure(tag);
+    await recordPinFailure(tag).catch((err) => console.error("admin PIN failure log failed", err));
     return NextResponse.json({ error: "Wrong PIN." }, { status: 401 });
   }
 
