@@ -12,24 +12,25 @@
  * logging now even though the reporting UI can stay minimal (see
  * /admin/backtest page).
  *
- * SNOTEL reports snow-water-equivalent (observed_swe_mm), not snowfall
- * inches directly, so the "observed equivalent" here converts SWE back to
- * an inches figure using the SAME resort-specific SLR the prediction used
- * (resort.slr_calibration_multiplier via the Kuchera strategy evaluated at
- * that day's predicted Tmax) — an apples-to-apples comparison against what
- * the model predicted, not an independent ground-truth snowfall
- * measurement (NRCS doesn't publish forecast-independent snowfall depth
- * consistently across stations). This is a known limitation: it validates
- * the reconciled SWE forecast against ground truth precipitation, while the
- * SLR conversion step itself is validated separately by comparing multiple
- * SLR strategies against the same SWE actuals during manual season review.
- * The NWS benchmark comparison below sidesteps this issue — NWS already
- * reports snowfallAmount directly in inches-equivalent (converted from mm),
- * so no SLR re-derivation is needed for that side of the comparison.
+ * Ground truth is snotel_actuals.observed_depth_change_in: the day's rise
+ * in measured snow depth (never negative), the same figure the
+ * forecast-archive backtest uses. Until 2026-11-13 this used
+ * observed_swe_mm, which is SNOTEL's season-to-date snow water (WTEQ), not
+ * the day's new snow, so every snowy day at a deep-snowpack station looked
+ * like a huge storm (Aspen Highlands logged 47" on 2026-11-04 for a real
+ * 6-7") and the calibration proposals built on it were inflated. Depth
+ * change also stays independent of our own SLR, so it can actually check
+ * the SLR step. Days with no depth reading are skipped.
  */
 
 import { getServiceDb } from "@/lib/db/client";
 import type { AccuracyLogSource, BenchmarkForecast, Resort, SnowScore, SnotelActual } from "@/lib/db/types";
+
+/** The day's measured new snow (inches): the rise in snow depth, or null when the station gave no depth. */
+export function observedNewSnowIn(actual: Pick<SnotelActual, "observed_depth_change_in">): number | null {
+  const v = actual.observed_depth_change_in;
+  return v == null ? null : Math.max(0, Number(v));
+}
 
 function yesterdayIso(): string {
   const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -62,7 +63,8 @@ async function logPowderAlertAccuracy(
     .limit(1)
     .maybeSingle();
   if (latestError) throw latestError;
-  if (!latestData || actual.observed_swe_mm == null) return { matched: 0, skipped: 1 };
+  const observedIn = observedNewSnowIn(actual);
+  if (!latestData || observedIn == null) return { matched: 0, skipped: 1 };
 
   const { data: scoresData, error: scoresError } = await db
     .from("snow_scores")
@@ -75,7 +77,7 @@ async function logPowderAlertAccuracy(
 
   let matched = 0;
   for (const score of scores) {
-    const observedEquivalentIn = score.is_rain_case ? 0 : (actual.observed_swe_mm * score.snow_to_liquid_ratio) / 25.4;
+    const observedEquivalentIn = observedIn;
     const accuracyErrorIn = score.estimated_snowfall_in - observedEquivalentIn;
 
     const { error: upsertError } = await db.from("accuracy_log").upsert(
@@ -117,15 +119,12 @@ async function logNwsBenchmarkAccuracy(
     .maybeSingle();
   if (benchmarkError) throw benchmarkError;
   const benchmark = benchmarkData as BenchmarkForecast | null;
-  if (!benchmark || actual.observed_swe_mm == null) return "skipped";
+  const observedIn = observedNewSnowIn(actual);
+  if (!benchmark || observedIn == null) return "skipped";
 
-  // NWS's snowfallAmount is already a snowfall-inches estimate, not a raw
-  // SWE value, so there's no SLR re-derivation here — compare directly
-  // against SNOTEL's SWE converted through a plain 12:1 fixed ratio as the
-  // simplest neutral "observed equivalent" baseline for this comparison
-  // (not the resort-tuned Kuchera ratio used for the Powder Seeker side,
-  // since this is a baseline-vs-baseline check, not our own calibration).
-  const observedEquivalentIn = (actual.observed_swe_mm * 12) / 25.4;
+  // NWS's snowfallAmount is already a snowfall-inches estimate, so it's
+  // compared against the same measured new snow as our own forecast.
+  const observedEquivalentIn = observedIn;
   const accuracyErrorIn = benchmark.estimated_snowfall_in - observedEquivalentIn;
 
   const { error: upsertError } = await db.from("accuracy_log").upsert(
@@ -169,7 +168,7 @@ export async function runBacktestForDate(targetDateIso: string = yesterdayIso())
         .maybeSingle();
       if (actualError) throw actualError;
       const actual = actualData as SnotelActual | null;
-      if (!actual || actual.observed_swe_mm == null) {
+      if (!actual || observedNewSnowIn(actual) == null) {
         skipped += 1;
         continue;
       }
