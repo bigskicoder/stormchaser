@@ -811,3 +811,26 @@ tbody tr:hover {
     font-weight: 700;
   }
 }
+
+/* ---------------------------------------------------------------------
+   Admin: calibration review cards (work on a phone)
+--------------------------------------------------------------------- */
+.calib-review { margin-top: 20px; display: grid; gap: 10px; }
+.calib-actions { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 0; background: var(--bg); }
+.calib-approve { padding: 12px 18px; border-radius: 8px; border: none; background: var(--high); color: #06111f; font-weight: 700; font-size: 16px; cursor: pointer; }
+.calib-approve:disabled { opacity: 0.5; cursor: default; }
+.calib-link { background: none; border: none; color: var(--text-muted); text-decoration: underline; font-size: 14px; padding: 8px 4px; cursor: pointer; }
+.calib-msg { margin: 0; font-size: 14px; }
+.calib-msg.ok { color: var(--high); }
+.calib-msg.err { color: var(--danger); }
+.calib-card { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; padding: 12px 14px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.calib-card.done { opacity: 0.55; }
+.calib-head { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; font-weight: 600; cursor: pointer; }
+.calib-head input { width: 20px; height: 20px; flex: none; }
+.calib-phase { color: var(--text-muted); font-weight: 400; }
+.calib-nums { display: grid; gap: 2px; font-size: 15px; }
+.calib-meta { color: var(--text-faint); font-size: 12px; }
+.calib-big { color: #f5a524; font-weight: 600; }
+.calib-small { color: var(--text-muted); }
+.calib-reject { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: 14px; cursor: pointer; }
+.calib-state { font-size: 13px; color: var(--text-muted); }

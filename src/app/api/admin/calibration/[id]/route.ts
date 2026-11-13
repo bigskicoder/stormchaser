@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/admin/authz";
 import { reviewCalibrationRecommendation } from "@/lib/calibration/apply";
 
+export const maxDuration = 60;
+
 const bodySchema = z.object({ decision: z.enum(["approved", "rejected"]) });
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

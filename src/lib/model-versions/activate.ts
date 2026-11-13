@@ -60,9 +60,19 @@ export async function activateModelVersion(versionId: string, activatedBy: strin
   // added after this version was saved simply isn't in resort_slr_multipliers
   // and keeps whatever multiplier it already has, rather than being zeroed
   // or erroring the whole activation.
-  for (const [resortId, multiplier] of Object.entries(target.resort_slr_multipliers)) {
-    const { error: resortError } = await db.from("resorts").update({ slr_calibration_multiplier: multiplier }).eq("id", resortId);
-    if (resortError) throw resortError;
+  // Writes only the resorts whose multiplier actually changes, a few at a
+  // time: one sequential update per resort (65 round trips) made a single
+  // admin approval slow enough to fail from a phone on 2026-11-13.
+  const { data: currentRows, error: currentError } = await db.from("resorts").select("id, slr_calibration_multiplier");
+  if (currentError) throw currentError;
+  const current = new Map((currentRows ?? []).map((r) => [r.id as string, Number(r.slr_calibration_multiplier)]));
+  const changed = Object.entries(target.resort_slr_multipliers).filter(([id, m]) => current.has(id) && current.get(id) !== Number(m));
+  for (let i = 0; i < changed.length; i += 10) {
+    const results = await Promise.all(
+      changed.slice(i, i + 10).map(([resortId, multiplier]) => db.from("resorts").update({ slr_calibration_multiplier: multiplier }).eq("id", resortId))
+    );
+    const failed = results.find((r) => r.error);
+    if (failed?.error) throw failed.error;
   }
 
   return activated as ModelVersion;

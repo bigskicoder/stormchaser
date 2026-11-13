@@ -1,5 +1,5 @@
 import { getServiceDb } from "@/lib/db/client";
-import { CalibrationReviewRow } from "@/components/calibration-review-row";
+import { CalibrationReview } from "@/components/calibration-review";
 import type { CalibrationRecommendation, Resort } from "@/lib/db/types";
 
 export const dynamic = "force-dynamic";
@@ -17,54 +17,35 @@ async function getPendingRecommendations() {
 
 export default async function AdminCalibrationPage() {
   const recommendations = await getPendingRecommendations();
+  // Biggest changes first, so the ones worth a second look are at the top.
+  const items = recommendations
+    .map((r) => ({
+      id: r.id,
+      resortName: r.resorts?.name ?? r.resort_id,
+      phaseLabel: r.enso_phase === "el_nino" ? "El Niño winters" : r.enso_phase === "la_nina" ? "La Niña winters" : null,
+      sampleCount: r.sample_count,
+      meanSignedErrorIn: Number(r.mean_signed_error_in),
+      currentMultiplier: Number(r.current_multiplier),
+      recommendedMultiplier: Number(r.recommended_multiplier),
+    }))
+    .sort((a, b) => Math.abs(Math.log(b.recommendedMultiplier / b.currentMultiplier)) - Math.abs(Math.log(a.recommendedMultiplier / a.currentMultiplier)));
 
   return (
     <>
       <h2 style={{ fontSize: 18 }}>
-        SLR calibration recommendations{" "}
-        {recommendations.length > 0 && <span className="badge medium">{recommendations.length} pending</span>}
+        Snow-ratio calibration {items.length > 0 && <span className="badge medium">{items.length} pending</span>}
       </h2>
       <p style={{ color: "var(--text-muted)" }}>
-        ROADMAP Phase B — recommend-only. Generated weekly from accuracy_log history (minimum 15 samples per resort),
-        each one applies its full correction in one step, within 0.5bounded to &plusmn;5% per update. Nothingtimes;bounded to &plusmn;5% per update. Nothingndash;2bounded to &plusmn;5% per update. Nothingtimes;. A new run replaces a recommendation still waiting here. Nothing here is applied until approved below; approving creates and
-        activates a new entry on the <a href="/admin/model-versions">model versions</a> page with this one
-        resort&rsquo;s multiplier updated — the previous version stays saved, so the change can be rolled back from
-        there. Samples are weighted by age (half weight at 10 years old). A row marked El Niño or La Niña is a
-        separate multiplier used only in winters of that phase; it&rsquo;s only proposed once that resort&rsquo;s
-        error in those winters is clearly different from neutral ones.
+        Each proposal changes one resort&rsquo;s snow-to-liquid multiplier (between 0.5 and 2.0) so its forecasts match
+        measured snowfall. Nothing changes until you approve. Approving the ticked ones makes them live together as one
+        new entry under <a href="/admin/model-versions">Model versions</a>, and activating the previous entry there undoes
+        it. A row marked El Niño or La Niña applies only in winters of that phase. Changes of 25% or more are in orange.
       </p>
-      <table>
-        <thead>
-          <tr>
-            <th>Resort</th>
-            <th>Samples</th>
-            <th>Mean signed error</th>
-            <th>Current</th>
-            <th>Recommended</th>
-            <th>Decision</th>
-          </tr>
-        </thead>
-        <tbody>
-          {recommendations.map((r) => (
-            <CalibrationReviewRow
-              key={r.id}
-              id={r.id}
-              resortName={`${r.resorts?.name ?? r.resort_id}${r.enso_phase === "el_nino" ? " · El Niño winters" : r.enso_phase === "la_nina" ? " · La Niña winters" : ""}`}
-              sampleCount={r.sample_count}
-              meanSignedErrorIn={r.mean_signed_error_in}
-              currentMultiplier={r.current_multiplier}
-              recommendedMultiplier={r.recommended_multiplier}
-            />
-          ))}
-          {recommendations.length === 0 && (
-            <tr>
-              <td colSpan={6} className="no-signal">
-                No pending recommendations — accumulates once resorts have 15+ accuracy_log samples.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      {items.length === 0 ? (
+        <p className="no-signal">No pending proposals.</p>
+      ) : (
+        <CalibrationReview items={items} />
+      )}
     </>
   );
 }
