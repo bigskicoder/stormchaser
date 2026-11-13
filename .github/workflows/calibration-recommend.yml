@@ -10,6 +10,11 @@ name: Calibration recommend
 
 on:
   workflow_dispatch:
+    inputs:
+      list_only:
+        description: "Only print the pending proposals; change nothing"
+        type: boolean
+        default: false
 
 concurrency:
   group: calibration-recommend
@@ -35,4 +40,7 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - run: npx tsx scripts/calibration-recommend.ts
+      - if: ${{ !inputs.list_only }}
+        run: npx tsx scripts/calibration-recommend.ts
+
+      - run: npx tsx scripts/list-pending-calibrations.ts
