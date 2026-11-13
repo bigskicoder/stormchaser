@@ -5,11 +5,17 @@
 # downloaded again and checked. "dry-run" writes one test file, checks it,
 # removes it and changes nothing.
 #
+# Runs nightly in archive mode (Nick chose "Archive to files" 2026-11-13),
+# after the 06:00 UTC historical run starts, so the table stays at about
+# the last few days of runs plus 14 days of the newest run per hour.
+#
 # Needs the repository secret SUPABASE_SERVICE_ROLE_KEY.
 
 name: Archive old forecasts
 
 on:
+  schedule:
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -48,7 +54,7 @@ jobs:
 
       - name: Run
         env:
-          MODE: ${{ inputs.mode }}
+          MODE: ${{ inputs.mode || 'archive' }}
           DAYS: ${{ inputs.days }}
         run: |
           args=()
