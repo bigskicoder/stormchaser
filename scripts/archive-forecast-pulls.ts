@@ -37,7 +37,7 @@ async function deleteIds(ids: string[]): Promise<number> {
     const mid = Math.floor(ids.length / 2);
     return (await deleteIds(ids.slice(0, mid))) + (await deleteIds(ids.slice(mid)));
   }
-  throw error;
+  throw Object.assign(new Error(`deleting ${ids.length} rows failed`), { cause: error });
 }
 
 function arg(name: string): string | undefined {
@@ -122,6 +122,7 @@ async function main() {
     let buffer: Array<{ id: string; run_init_time: string }> = [];
     let total = 0;
     let page = PAGE;
+    let timeouts = 0;
     for (;;) {
       const { data, error } = await db.rpc("forecast_archive_chunk", {
         p_run_date: runDate,
@@ -130,13 +131,18 @@ async function main() {
         p_limit: page,
       });
       if (error) {
-        // Timed out: retry the same page smaller, then grow back.
-        if (isTimeout(error) && page > 250) {
-          page = Math.floor(page / 2);
+        // Timed out: retry the same page smaller (after a pause, so a busy
+        // database or a vacuum can catch up), then grow back.
+        if (isTimeout(error) && (page > 250 || timeouts < 20)) {
+          timeouts++;
+          console.log(`  ${runDate}: page of ${page} timed out (${timeouts}); retrying smaller`);
+          page = Math.max(250, Math.floor(page / 2));
+          await new Promise((r) => setTimeout(r, Math.min(60_000, 5_000 * timeouts)));
           continue;
         }
-        throw error;
+        throw Object.assign(new Error(`${runDate}: reading a page of ${page} rows timed out ${timeouts} times`), { cause: error });
       }
+      timeouts = 0;
       page = Math.min(PAGE, page * 2);
       const rows = (data ?? []) as Array<{ id: string; run_init_time: string }>;
       if (rows.length === 0) break;
