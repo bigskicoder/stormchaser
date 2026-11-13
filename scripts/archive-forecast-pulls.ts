@@ -24,6 +24,22 @@ const PAGE = 5_000; // keeps each RPC well under the API's 8 s statement timeout
 const PART_ROWS = 100_000; // about 10-20 MB gzipped, under Storage's 50 MB per-file limit
 const DELETE_BATCH = 5_000;
 
+/** Postgres "statement timeout": the API cuts every call off at 8 s. */
+function isTimeout(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "57014";
+}
+
+async function deleteIds(ids: string[]): Promise<number> {
+  const { data, error } = await getServiceDb().rpc("forecast_archive_delete", { p_ids: ids });
+  if (!error) return data as number;
+  // A slow moment on the database: split the batch rather than fail the run.
+  if (isTimeout(error) && ids.length > 100) {
+    const mid = Math.floor(ids.length / 2);
+    return (await deleteIds(ids.slice(0, mid))) + (await deleteIds(ids.slice(mid)));
+  }
+  throw error;
+}
+
 function arg(name: string): string | undefined {
   return process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 }
@@ -84,9 +100,7 @@ async function writePart(runDate: string, part: number, rows: Array<{ id: string
   {
     let deleted = 0;
     for (let i = 0; i < ids.length; i += DELETE_BATCH) {
-      const { data, error } = await db.rpc("forecast_archive_delete", { p_ids: ids.slice(i, i + DELETE_BATCH) });
-      if (error) throw error;
-      deleted += data as number;
+      deleted += await deleteIds(ids.slice(i, i + DELETE_BATCH));
     }
     const { error: updError } = await db.from("forecast_archive_log").update({ deleted: true }).eq("run_date", runDate).eq("part", part);
     if (updError) throw updError;
@@ -107,14 +121,23 @@ async function main() {
     let after: { run_init_time: string; id: string } | null = null;
     let buffer: Array<{ id: string; run_init_time: string }> = [];
     let total = 0;
+    let page = PAGE;
     for (;;) {
       const { data, error } = await db.rpc("forecast_archive_chunk", {
         p_run_date: runDate,
         p_after_time: after?.run_init_time ?? null,
         p_after_id: after?.id ?? null,
-        p_limit: PAGE,
+        p_limit: page,
       });
-      if (error) throw error;
+      if (error) {
+        // Timed out: retry the same page smaller, then grow back.
+        if (isTimeout(error) && page > 250) {
+          page = Math.floor(page / 2);
+          continue;
+        }
+        throw error;
+      }
+      page = Math.min(PAGE, page * 2);
       const rows = (data ?? []) as Array<{ id: string; run_init_time: string }>;
       if (rows.length === 0) break;
       buffer.push(...rows);
