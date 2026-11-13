@@ -25,6 +25,10 @@ const clerk = clerkMiddleware(async (auth, req) => {
  */
 export default function middleware(req: NextRequest, event: NextFetchEvent) {
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
+    // Temporary PIN sign-in (lib/admin/pin.ts): the admin layout shows a
+    // PIN prompt and requireAdmin checks the PIN cookie on every page and
+    // API call, so the request goes through to them.
+    if (process.env.ADMIN_PIN_ENABLED !== "false") return NextResponse.next();
     return new NextResponse(
       "<!doctype html><meta name=viewport content='width=device-width'><title>Admin not set up</title>" +
         "<body style='font-family:system-ui;padding:24px;max-width:520px'><h1>Admin sign-in isn't set up yet</h1>" +

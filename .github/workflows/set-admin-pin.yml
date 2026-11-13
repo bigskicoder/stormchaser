@@ -1,0 +1,47 @@
+# Stores the admin PIN's salted hash in private Supabase Storage
+# (scripts/set-admin-pin.ts). Run "keygen" first, then "store" with the PIN
+# encrypted to the printed public key. The PIN never appears in the repo or
+# in these (public) logs. ADMIN_PIN in Vercel overrides the stored PIN.
+#
+# Needs the repository secret SUPABASE_SERVICE_ROLE_KEY.
+
+name: Set admin PIN
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "keygen, then store"
+        type: choice
+        options: [keygen, store]
+        default: keygen
+      ciphertext:
+        description: "store only: the PIN encrypted to the keygen public key (base64)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  set-pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://hfvcwrzjekzrpyerefao.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Run
+        env:
+          STEP: ${{ inputs.step }}
+          CIPHERTEXT: ${{ inputs.ciphertext }}
+        run: npx tsx scripts/set-admin-pin.ts "$STEP" "$CIPHERTEXT"
