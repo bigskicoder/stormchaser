@@ -56,6 +56,32 @@ async function runDates(keepDays: number): Promise<string[]> {
   return out;
 }
 
+/**
+ * Where to pick up a date that earlier runs already started: the last row
+ * of its last archived (and deleted) file. Starting from the beginning of
+ * the day instead makes the first page wade through every row already
+ * deleted there, which Postgres can't skip until it vacuums the table, and
+ * on 2026-11-13 that alone timed out page after page.
+ */
+async function resumeCursor(runDate: string): Promise<{ run_init_time: string; id: string } | null> {
+  const db = getServiceDb();
+  const { data, error } = await db
+    .from("forecast_archive_log")
+    .select("object_path")
+    .eq("run_date", runDate)
+    .eq("deleted", true)
+    .order("part", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  const path = ((data ?? [])[0] as { object_path: string } | undefined)?.object_path;
+  if (!path) return null;
+  const down = await db.storage.from(BUCKET).download(path);
+  if (down.error) throw down.error;
+  const lines = gunzipSync(Buffer.from(await down.data.arrayBuffer())).toString("utf8").trimEnd().split("\n");
+  const last = JSON.parse(lines[lines.length - 1]!) as { run_init_time: string; id: string };
+  return { run_init_time: last.run_init_time, id: last.id };
+}
+
 async function nextPart(runDate: string): Promise<number> {
   const { data, error } = await getServiceDb().from("forecast_archive_log").select("part").eq("run_date", runDate).order("part", { ascending: false }).limit(1);
   if (error) throw error;
@@ -116,9 +142,16 @@ async function main() {
   console.log(`${dates.length} run date(s) to archive${del ? "" : " (dry run)"}.`);
   const db = getServiceDb();
 
+  // Stop cleanly before GitHub's job limit; the next run resumes.
+  const deadline = Date.now() + Number(arg("minutes") ?? 300) * 60_000;
   for (const runDate of dates) {
+    if (Date.now() > deadline) {
+      console.log("Time budget used up; the next run continues from here.");
+      break;
+    }
     let part = await nextPart(runDate);
-    let after: { run_init_time: string; id: string } | null = null;
+    let after: { run_init_time: string; id: string } | null = del ? await resumeCursor(runDate) : null;
+    if (after) console.log(`  ${runDate}: resuming after ${after.run_init_time}`);
     let buffer: Array<{ id: string; run_init_time: string }> = [];
     let total = 0;
     let page = PAGE;
@@ -150,11 +183,12 @@ async function main() {
       after = rows[rows.length - 1]!;
       // A dry run checks one part and stops.
       if (!del && buffer.length >= PART_ROWS) break;
-      if (buffer.length >= PART_ROWS) {
+      if (buffer.length >= PART_ROWS || (del && Date.now() > deadline && buffer.length > 0)) {
         await writePart(runDate, part++, buffer, del);
         total += buffer.length;
         buffer = [];
       }
+      if (del && Date.now() > deadline) break;
     }
     if (buffer.length) {
       await writePart(runDate, part++, buffer, del);
