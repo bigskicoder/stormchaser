@@ -60,4 +60,12 @@ jobs:
           args=()
           if [ "$MODE" = "archive" ]; then args+=(--delete); fi
           if [ -n "$DAYS" ]; then args+=("--days=$DAYS"); fi
-          npx tsx scripts/archive-forecast-pulls.ts "${args[@]}"
+          # Restart after a failure (usually a database statement timeout
+          # while it's busy). Safe: rows are only deleted after their file
+          # is checked, and a rerun picks up whatever is still there.
+          for attempt in 1 2 3 4 5 6; do
+            if npx tsx scripts/archive-forecast-pulls.ts "${args[@]}"; then exit 0; fi
+            echo "Attempt $attempt failed; retrying in 60 s."
+            sleep 60
+          done
+          exit 1
