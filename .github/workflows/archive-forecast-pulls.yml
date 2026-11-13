@@ -56,18 +56,20 @@ jobs:
         env:
           MODE: ${{ inputs.mode || 'archive' }}
           DAYS: ${{ inputs.days }}
+          # Nightly runs get an hour so they never load the database all night.
+          BUDGET: ${{ github.event_name == 'schedule' && 60 || 300 }}
         run: |
           args=()
           if [ "$MODE" = "archive" ]; then args+=(--delete); fi
           if [ -n "$DAYS" ]; then args+=("--days=$DAYS"); fi
-          # Each attempt gets what's left of a 300-minute budget, so the job
+          # Each attempt gets what's left of the BUDGET minutes, so the job
           # ends cleanly before GitHub's 330-minute limit.
           start=$(date +%s)
           # Restart after a failure (usually a database statement timeout
           # while it's busy). Safe: rows are only deleted after their file
           # is checked, and a rerun picks up whatever is still there.
           for attempt in 1 2 3 4 5 6; do
-            left=$(( 300 - ($(date +%s) - start) / 60 ))
+            left=$(( BUDGET - ($(date +%s) - start) / 60 ))
             if [ "$left" -lt 10 ]; then break; fi
             if npx tsx scripts/archive-forecast-pulls.ts "${args[@]}" "--minutes=$left"; then exit 0; fi
             echo "Attempt $attempt failed; retrying in 60 s."
